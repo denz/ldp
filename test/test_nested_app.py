@@ -1,13 +1,12 @@
-from ldp.app import NestedFlask
-from flask import Flask
+
+
 import unittest
-from collections import Mapping
+from random import randint
 from flask import request, current_app, url_for
 from flask.globals import _app_ctx_stack
-import traceback
-from pprint import pprint
-
-from random import randint
+from flask import Flask
+from treelib import Tree
+from ldp.app import NestedFlask, NestedFlaskMapping
 
 METHODS = ('GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'TRACE',)
 
@@ -18,15 +17,19 @@ def getleaf():
 
     @leaf.route('/', methods=METHODS)
     def oleaf():
-        return 'LEAF %s:%s:%s' % (current_app.name, request.path, url_for('xleaf'))
+        return 'LEAF %s:%s:%s' % (current_app.name,
+                                  request.path, url_for('xleaf'))
 
     @leaf.route('/x', methods=METHODS)
     def xleaf():
-        return 'SUBSUB %s:%s:%s ' % (current_app.name, request.path, url_for('oleaf'))
+        return 'SUBSUB %s:%s:%s ' % (current_app.name,
+                                     request.path,
+                                     url_for('oleaf'))
 
     @leaf.route('/z', methods=METHODS)
     def zleaf():
-        return 'context depth %s ' % (len([stack.app for stack in _app_ctx_stack._local.stack]))
+        return 'context depth %s ' % (len([stack.app for stack
+                                           in _app_ctx_stack._local.stack]))
 
     return leaf
 
@@ -123,7 +126,7 @@ class TestNestedFlask(unittest.TestCase):
 
         response = self.c.get('/zz')
         self.assertIn(b'1', response.data)
-        print(response.data)        print(response.data)
+        print(response.data)
 
 
 TREE = {
