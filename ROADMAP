@@ -1,14 +1,24 @@
 
 
- * 0.1:
+ * 0.0.1:
     ** docs generator 
-    ** Primitive convertor of RDF store to `treelib` tree of `Resources`
+    ** Primitive convertor of RDF store to `treelib` `ResourceTree`
     ** nested applications dispatcher 
-    ** HTTP request headers based request dispatcher
-    ** resource tests
-
- * 0.2
-    
-
- * 1.0: 
-    ** RDF store to 
+    ** LDP ready HTTP headers based request dispatcher
+ 
+ * 0.0.2
+    ** RDFSource generation
+    ** SPARQL(robust) based convertor of RDF store to `treelib` tree of resources 
+    ** ??(http://marmotta.apache.org/ldpath/)??
+    ** ResourceTree to filesystem and filesystem to `ResourceTree` convertor. https://github.com/smontanaro/pylockfile) aware
+ 
+ * 0.0.3
+    ** ptemplate template generation working together with and based on jinja2
+    ** html template helpers
+    ** javascript LDP aware client
+ 
+ * 0.0.8
+    ** d3.js based admin area application
+ 
+ * 0.0.9
+    ** permissions
