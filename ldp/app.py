@@ -3,7 +3,14 @@ from werkzeug.utils import cached_property
 from werkzeug.wsgi import DispatcherMiddleware
 from flask.globals import _app_ctx_stack
 
+
 class NestedFlask(DispatcherMiddleware, Flask):
+    """Nested applications dispatcher.
+    Same as :class:`werkzeug.DispatcherMiddleware` but proxies root application
+    methods.
+
+    This allows to create deep nested application trees 
+    """
     def __call__(self, environ, start_response):
         script = environ.get('PATH_INFO', '')
         path_info = ''
@@ -29,8 +36,10 @@ class NestedFlask(DispatcherMiddleware, Flask):
         self.__dict__[name] = getattr(self.app, name)
         return self.__dict__[name]
 
-class LdpApp(NestedFlask):
 
+class LdpApp(NestedFlask):
+    """Test App docs
+    """
     @cached_property
     def storage(self):
         storage = self.config['STORAGE']
