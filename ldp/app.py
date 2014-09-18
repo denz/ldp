@@ -36,6 +36,41 @@ class NestedFlask(DispatcherMiddleware, Flask):
         self.__dict__[name] = getattr(self.app, name)
         return self.__dict__[name]
 
+class NestedFlaskMapping(dict):
+    """Generates :class:`treelib.Tree` based mapping for nested flask recursively on the fly
+    """
+    def __init__(self, tree, nodes, constructor, *args, **kwargs):
+        self.nodes = nodes
+        self.nested_tags = [node.tag for node in nodes]
+        self.tree = tree
+        self.constructor = constructor
+        super(NestedFlaskMapping, self).__init__(*args, **kwargs)
+
+    def __getitem__(self, tag):
+        if super(NestedFlaskMapping, self).__contains__(tag):
+            return super(NestedFlaskMapping, self).__getitem__(tag)
+
+        if not tag in self.nested_tags:
+            raise KeyError(tag)
+
+        app = self.constructor(self.tree,
+                               self.nodes[self.nested_tags.index(tag)])
+        super(NestedFlaskMapping, self).__setitem__(tag, app)
+
+        return super(NestedFlaskMapping, self).__getitem__(tag)
+
+    def __iter__(self):
+        for nid in self.nested_tags:
+            self[nid]
+            yield nid
+
+    def __len__(self):
+        return len(self.nodes)
+
+    def __contains__(self, tag):
+        if not super(NestedFlaskMapping, self).__contains__(tag):
+            return tag in self.nested_tags
+        return True
 
 class LdpApp(NestedFlask):
     """Test App docs
