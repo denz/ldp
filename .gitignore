@@ -33,4 +33,3 @@ younews/crawler/dispatcher
 */upload/galleries/*
 !*/upload/galleries/README.txt
 !*/younews/dtasources/*/*.log
-docs
