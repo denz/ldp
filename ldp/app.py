@@ -9,7 +9,7 @@ class NestedFlask(DispatcherMiddleware, Flask):
     Same as :class:`werkzeug.DispatcherMiddleware` but proxies root application
     methods.
 
-    This allows to create deep nested application trees 
+    This allows to create nested application trees 
     """
     def __call__(self, environ, start_response):
         script = environ.get('PATH_INFO', '')
@@ -26,6 +26,7 @@ class NestedFlask(DispatcherMiddleware, Flask):
         original_script_name = environ.get('SCRIPT_NAME', '')
         environ['SCRIPT_NAME'] = original_script_name + script
         environ['PATH_INFO'] = path_info
+
         if self.app != app:
             with self.app.app_context():
                 return app(environ, start_response)
@@ -35,6 +36,11 @@ class NestedFlask(DispatcherMiddleware, Flask):
     def __getattr__(self, name):
         self.__dict__[name] = getattr(self.app, name)
         return self.__dict__[name]
+
+    def generate_apptree(self):
+        for name in self.mounts:
+            if isinstance(self.mounts[name], NestedFlask):
+                self.mounts[name].generate_apptree()
 
 class NestedFlaskMapping(dict):
     """Generates :class:`treelib.Tree` based mapping for nested flask recursively on the fly
