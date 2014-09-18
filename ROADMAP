@@ -1,0 +1,14 @@
+
+
+ * 0.1:
+    ** docs generator 
+    ** Primitive convertor of RDF store to `treelib` tree of `Resources`
+    ** nested applications dispatcher 
+    ** HTTP request headers based request dispatcher
+    ** resource tests
+
+ * 0.2
+    
+
+ * 1.0: 
+    ** RDF store to 
