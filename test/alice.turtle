@@ -1,0 +1,32 @@
+@prefix dcterms: <http://purl.org/dc/terms/>.
+@prefix ldp: <http://www.w3.org/ns/ldp#>.
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix cv: <http://purl.org/captsolo/resume-rdf/0.2/cv#> .
+
+
+@base <http://example.org/> .
+
+<alice> a foaf:Person;
+  dcterms:title 'Alice’s data storage on the Web' .
+
+<bob> a foaf:Person;
+  dcterms:title 'Bob’s data storage on the Web' .
+
+<den> a foaf:Person;
+  dcterms:title 'Den’s data storage on the Web';
+  rdfs:comment "Just a Python & RDF hacker."@en;
+  foaf:depiction </images/person/some1.jpg>;
+  foaf:homepage <http://example.net/>;
+  foaf:name "Denis Mishchishin";
+  cv:hasWorkHistory [ cv:employedIn </#company>;
+            cv:startDate "2009-09-04"^^xsd:date ] .
+
+</images/person/some1.jpg> a foaf:Image;
+    rdfs:label "some 1"@en;
+    rdfs:comment "Just an image"@en;
+    foaf:thumbnail </images/person/some1-thumb.jpg> .
+
+</images/person/some1-thumb.jpg> a foaf:Image .
+
