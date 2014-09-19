@@ -1,6 +1,5 @@
 from treelib import Tree
 from rdflib.namespace import *
-
 from .url import URL
 from . import NS as LDP
 
@@ -20,24 +19,25 @@ class TreeRootsNormalizer(object):
     def __init__(self, p, o):
         self.subjects = (p, o)
 
-    def tree(self, graph, hostname, root_id='root', root_url='/'):
+    def tree(self, graph, root_url):
         """
         Builds resource tree
         """
+        root_url = URL(root_url)
         tree = self.tree_class()
-        tree.create_node(root_url, root_id, data=graph)
-        for resource in self(graph, hostname):
+        tree.create_node(root_url.path, root_url, data=graph)
+        for resource in self(graph, root_url):
             resource.add(RDF.type, LDP.Resource)
             tree.create_node(resource.parsed.path,
                              resource.identifier,
-                             root_id,
+                             root_url,
                              data=resource)
         return tree
 
-    def __call__(self, graph, hostname):
+    def __call__(self, graph, root_url):
         for subject in graph.subjects(*self.subjects):
-            parsed = URL(subject)
-            if parsed.hostname == hostname:
+            if subject.startswith(root_url):
+
                 resource = graph.resource(subject)
-                resource.parsed = parsed
+                resource.parsed = URL(subject)
                 yield resource
