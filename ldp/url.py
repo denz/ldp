@@ -14,67 +14,66 @@ NOT_PROVIDED = object()
 
 
 class URL(str):
-
-    '''Immutable str for url parsing and building
+    '''
+    Immutable str for url parsing and building
 
     Basestring operations
     =====================
 
-    url = URL('http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eee')
-    assert(url == u'http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eee')
-    assert(url + 'ccc' == \
-        u'http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eeeccc')
+    ::
 
+        url = URL('http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eee')
+        assert(url == u'http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eee')
+        assert(url + 'ccc' == u'http://den:passwd@google.com:2020/path/to?a=2&b=4%23#eeeccc')
+
+    
     Parsing
     =======
+    
+    ::
+        assert(url.scheme == u'https')
+        assert(url.netloc == u'den:passwd@google.com:2020')
+        assert(url.username == u'den')
+        assert(url.password == u'passwd')
+        assert(url.hostname == u'google.com')
+        assert(url.port == 2020)
+        assert(url.path == u'/path/to')
+        assert(url.query == u'a=2&b=4%23')
+        assert(url.args == {'a':['2'], 'b':['4#']})
+        assert(url.fragment == 'eee')
 
-    assert(url.scheme == u'https')
-    assert(url.netloc == u'den:passwd@google.com:2020')
-    assert(url.username == u'den')
-    assert(url.password == u'passwd')
-    assert(url.hostname == u'google.com')
-    assert(url.port == 2020)
-    assert(url.path == u'/path/to')
-    assert(url.query == u'a=2&b=4%23')
-    assert(url.args == {'a':['2'], 'b':['4#']})
-    assert(url.fragment == 'eee')
 
     Building
     ========
-    assert(url(path='/leads/to/other/place')
-    == u'http://den:passwd@google.com:2020/leads/to/other/place?a=2&b=4%23#eee')
+    ::
+        assert(url(path='/leads/to/other/place') == u'http://den:passwd@google.com:2020/leads/to/other/place?a=2&b=4%23#eee')
 
-    assert(url(hostname='github.com')
-    == u'http://den:passwd@github.com:2020/leads/to/other/place?a=2&b=4%23#eee')
+        assert(url(hostname='github.com') == u'http://den:passwd@github.com:2020/leads/to/other/place?a=2&b=4%23#eee')
 
-    but:
+    
+    but::
 
-    assert(url(netloc='github.com')
-    == u'http://github.com/leads/to/other/place?a=2&b=4%23#eee')
+    assert(url(netloc='github.com') == u'http://github.com/leads/to/other/place?a=2&b=4%23#eee')
 
     to change netloc parts - use related netloc attribute names
-    (username, password, hostname, port)
+    (`username`, `password`, `hostname`, `port`)
 
-    same logic with query:
+    same logic with query::
 
-    assert(url(args={'c':22})
-    == u'http://github.com/leads/to/other/place?c=22#eee')
+        assert(url(args={'c':22}) == u'http://github.com/leads/to/other/place?c=22#eee')
 
-    or:
+    
+    or::
 
-    assert(url(query='c=22')
-    == u'http://github.com/leads/to/other/place?c=22#eee')
+        assert(url(query='c=22') == u'http://github.com/leads/to/other/place?c=22#eee')
 
-    To update single query argument:
-    assert(url.update_args(c=22)
-    == u'http://github.com/leads/to/other/place??a=2&b=4%23&c=22#eee')
+    To update single query argument::
+        
+        assert(url.update_args(c=22) == u'http://github.com/leads/to/other/place??a=2&b=4%23&c=22#eee')
 
-    or 
+    or::
 
-    assert(url.update_args(('c', 22), d=33)
-    == u'http://github.com/leads/to/other/place??a=2&b=4%23&c=22&e=33#eee')
-
-
+        assert(url.update_args(('c', 22), d=33) == u'http://github.com/leads/to/other/place??a=2&b=4%23&c=22&e=33#eee')
 
     '''
     __slots__ = ('_parsed', '_args')
