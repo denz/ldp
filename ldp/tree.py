@@ -3,9 +3,6 @@ from rdflib.namespace import *
 from .url import URL
 from . import NS as LDP
 
-class Tree(Tree):
-    pass
-
 
 class TreeRootsNormalizer(object):
 
@@ -19,22 +16,26 @@ class TreeRootsNormalizer(object):
     def __init__(self, p, o):
         self.subjects = (p, o)
 
-    def tree(self, graph, root_url):
+    def tree(self, graph, root_resource):
         """
         Builds resource tree
         """
-        root_url = URL(root_url)
+        root_id = root_resource.identifier
+        root_url = URL(root_resource.identifier)
+        path = root_url.path if root_url.path else '/'
+        root_url = root_url(path=path)
         tree = self.tree_class()
-        tree.create_node(root_url.path, root_url, data=graph)
-        for resource in self(graph, root_url):
-            resource.add(RDF.type, LDP.Resource)
+        tree.create_node(path,
+                         root_id,
+                         data=root_resource)
+        for resource in self.roots(graph, root_url):
             tree.create_node(resource.parsed.path,
                              resource.identifier,
-                             root_url,
+                             root_id,
                              data=resource)
         return tree
 
-    def __call__(self, graph, root_url):
+    def roots(self, graph, root_url):
         for subject in graph.subjects(*self.subjects):
             if subject.startswith(root_url):
 
