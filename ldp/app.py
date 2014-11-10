@@ -1,7 +1,6 @@
-from flask import Flask
+from flask import Flask, current_app
 from werkzeug.utils import cached_property
 from werkzeug.wsgi import DispatcherMiddleware
-from flask.globals import _app_ctx_stack
 
 
 class NestedFlask(DispatcherMiddleware, Flask):
@@ -26,7 +25,6 @@ class NestedFlask(DispatcherMiddleware, Flask):
         original_script_name = environ.get('SCRIPT_NAME', '')
         environ['SCRIPT_NAME'] = original_script_name + script
         environ['PATH_INFO'] = path_info
-
         if self.app != app:
             with self.app.app_context():
                 return app(environ, start_response)
@@ -36,11 +34,6 @@ class NestedFlask(DispatcherMiddleware, Flask):
     def __getattr__(self, name):
         self.__dict__[name] = getattr(self.app, name)
         return self.__dict__[name]
-
-    def generate_apptree(self):
-        for name in self.mounts:
-            if isinstance(self.mounts[name], NestedFlask):
-                self.mounts[name].generate_apptree()
 
 class NestedFlaskMapping(dict):
     """Generates :class:`treelib.Tree` based mapping for nested flask recursively on the fly

@@ -1,5 +1,3 @@
-
-
 import unittest
 from random import randint
 from flask import request, current_app, url_for
