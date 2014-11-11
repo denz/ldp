@@ -1,7 +1,12 @@
 import unittest
 from base import LdpTest
-from ldp import NS as LDP
-from ldp.resource import implied_types
+from ldp import NS as LDP, ds
+from ldp.resource import (implied_types,
+                          get_resource_class,
+                          BasicContainer,
+                          Container,
+                          Resource, RDFSource)
+
 class TestResource(LdpTest):
 
     """
@@ -26,9 +31,32 @@ class TestResource(LdpTest):
             self.assertIn(LDP.RDFSource, response.headers['Link'])
             self.assertIn(LDP.Container, response.headers['Link'])
             self.assertIn(LDP.BasicContainer, response.headers['Link'])
+        print(ds.serialize(format='turtle').decode())
 
-    def test_append_implied_types(self):
+    def ztest_append_implied_types(self):
         self.assertEqual(set(implied_types(LDP.BasicContainer)),
-                         set([  LDP.Resource,
-                                LDP.Container,
-                                LDP.RDFSource,]))
+                         set([LDP.Resource,
+                              LDP.Container,
+                              LDP.RDFSource, ]))
+
+    def test_resource_class_getter(self):
+        self.assertEqual(get_resource_class(LDP.Resource,
+                                            LDP.RDFSource,
+                                            LDP.Container,
+                                            LDP.BasicContainer),
+                         BasicContainer
+                         )
+        self.assertEqual(get_resource_class(LDP.Resource,
+                                            LDP.RDFSource,
+                                            LDP.Container),
+                         Container
+                         )
+
+        self.assertEqual(get_resource_class(LDP.Resource,
+                                            LDP.RDFSource,),
+                         RDFSource
+                         )
+
+        self.assertEqual(get_resource_class(LDP.Resource,),
+                         Resource
+                         )

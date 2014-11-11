@@ -70,20 +70,3 @@ class NestedFlaskMapping(dict):
         if not super(NestedFlaskMapping, self).__contains__(tag):
             return tag in self.nested_tags
         return True
-
-class LdpApp(NestedFlask):
-    """Test App docs
-    """
-    @cached_property
-    def storage(self):
-        storage = self.config['STORAGE']
-
-
-def Ldp(*args, app=None, storage=None, **options):
-    '''
-    Creates ldp application or generates resource views for existing
-    '''
-    if app is None:
-        app = LdpApp(*args, **options)
-    app.config.setdefault('STORAGE', storage)
-    return app

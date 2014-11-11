@@ -1,24 +1,28 @@
 from unittest import TestCase
-from rdflib import Graph, URIRef
+from rdflib import Graph, URIRef, Dataset
 from rdflib.namespace import *
 from rdflib.resource import Resource
-from flask import Flask
+from flask import Flask, g
 from slugify import slugify
 
 from ldp.app import NestedFlask, NestedFlaskMapping
 from ldp.tree import TreeRootsNormalizer
-from ldp import resource, NS as LDP
+from ldp import resource, NS as LDP, ds, scheme, data
+from ldp.dataset import context as ds_context
 from ldp.resource import implied_types
 from ldp.url import URL
+from ldp.globals import _dataset_ctx_stack
+
 
 
 def resource_app_constructor(tree, node):
     subs = tree.children(node.identifier)
     # place where we adding LDP types
     # so flask application be mapped to ldp resource type
-    for ldp_type in implied_types(LDP.BasicContainer):
-        node.data.add(RDF.type, ldp_type)
-    node.data.add(RDF.type, LDP.BasicContainer)
+    data = Resource(scheme, node.data._identifier)
+    for ldp_type in implied_types(LDP.BasicContainer):    
+        data.add(RDF.type, ldp_type)
+    data.add(RDF.type, LDP.BasicContainer)
     # print(node.data.objects(RDF.type))
     # node.data.add(RDF.type, LDP.IndirectContainer)
     nested = NestedFlask(
@@ -35,20 +39,26 @@ class LdpTest(TestCase):
 
     def setUp(self):
         print()
-        self.graph = Graph()
-        self.graph.parse("test/alice.turtle", format='turtle')
+        with ds_context({'id': URIRef('http://example.org/'),
+                         'name': 'data',
+                         'path': 'test/alice.turtle'},
+                        {'name': 'scheme',
+                         'id': URIRef(LDP)}) as ds:
+            _dataset_ctx_stack.push(ds)
+        root_ref = URIRef(
+            URL('')(scheme='http', netloc=self.hostname, path='/'))
+        
+        scheme.add((root_ref, RDF.type, LDP.RDFSource))
+        
+        root_resource = Resource(scheme, root_ref)
 
-        root_ref = URIRef(URL('')(scheme='http', netloc=self.hostname, path='/'))
-        self.graph.add((root_ref, RDF.type, LDP.RDFSource))
-        root_resource = Resource(self.graph, root_ref)
         for ldp_type in implied_types(LDP.RDFSource):
             root_resource.add(RDF.type, ldp_type)
         root_id = root_resource.identifier
-        self.tree = self.normalized.tree(self.graph, root_resource)
+        self.tree = self.normalized.tree(ds, root_resource)
 
         root = self.tree.get_node(root_id)
         subs = self.tree.children(root_id)
-
 
         self.app = NestedFlask(
             resource(self.tree, root, slugify(root.identifier)),
@@ -57,6 +67,9 @@ class LdpTest(TestCase):
                                self.resource_app_constructor))
 
         self.c = self.app.test_client()
+
+    def tearDown(self):
+        _dataset_ctx_stack.pop()
 
     def urls(self):
         _urls = []
