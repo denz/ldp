@@ -136,8 +136,27 @@ class Resource(Flask):
                                                    for r_type in resource_types))
             return response
 
+
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
+
+    def serialize(self, *args, **kwargs):
+        r = self.node.data
+        g = Graph()
+        for (p, o) in r.graph[r.identifier::]:
+            g.set((r.identifier, p, o))
+        return g.serialize(*args, **kwargs)
+
+    def on_node_set(self):
+        super(RDFSource, self).on_node_set()
+
+        @self.route(match_headers('/', Accept='application/*'), methods=('GET',))
+        def ldjson():
+            return self.serialize(format='turtle')
+
+        @self.route('/', methods=('GET',))
+        def default():
+            return self.serialize(format='turtle')
 
 
 class NonRDFSource(Resource):
