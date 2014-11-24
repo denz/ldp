@@ -95,6 +95,46 @@ class Resource(Flask):
             adapter.match = adapter.match.__get__(adapter, adapter.__class__)
         return adapter
 
+    @property
+    def node(self):
+        return self._node
+
+    @node.setter
+    def node(self, node):
+        self._node = node
+        # reset all application if new node set
+        self.view_functions = {}
+        self._error_handlers = {}
+        self.error_handler_spec = {None: self._error_handlers}
+        self.url_build_error_handlers = []
+        self.before_request_funcs = {}
+        self.before_first_request_funcs = []
+        self.after_request_funcs = {}
+        self.teardown_request_funcs = {}
+        self.teardown_appcontext_funcs = []
+        self.url_value_preprocessors = {}
+        self.url_default_functions = {}
+        self.template_context_processors = {
+            None: [_default_template_ctx_processor]
+        }
+        self.blueprints = {}
+        self.extensions = {}
+        self.url_map = Map()
+        self._got_first_request = False
+        self._before_request_lock = Lock()
+        self.on_node_set()
+
+    def on_node_set(self):
+        resource_types = [r.identifier for r
+                          in self.node.data.objects(RDF.type)
+                          if r.identifier.startswith(LDP)]
+
+        @self.after_request
+        def set_ldp_link_types(response):
+
+            response.headers['Link'] = '\t,'.join(('<%s>; rel="type"' % r_type
+                                                   for r_type in resource_types))
+            return response
 
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
