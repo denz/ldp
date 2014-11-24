@@ -19,7 +19,7 @@ def resource_app_constructor(tree, node):
     subs = tree.children(node.identifier)
     # place where we adding LDP types
     # so flask application be mapped to ldp resource type
-    data = Resource(scheme, node.data._identifier)
+    data = scheme.resource(node.data._identifier)
     for ldp_type in implied_types(LDP.BasicContainer):    
         data.add(RDF.type, ldp_type)
     data.add(RDF.type, LDP.BasicContainer)

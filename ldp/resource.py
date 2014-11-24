@@ -2,7 +2,7 @@ from itertools import chain
 from collections import OrderedDict
 from functools import wraps
 from threading import Lock
-from werkzeug.routing import Map, parse_rule, parse_converter_args
+from werkzeug.routing import Map
 import re
 from flask import (Blueprint, Flask, request, current_app, g)
 from flask.ext.negotiation import provides
