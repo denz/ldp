@@ -72,11 +72,10 @@ def implied_types(*explicit_types, hierarchy=TYPES):
                     implicit_types.append(implicit_type)
 
 
-
-
 class Resource(Flask):
     ldp_type = LDP.Resource
     url_rule_class = HeadersRule
+
     def __init__(self, node, *args, **kwargs):
         super(Resource, self).__init__(*args, **kwargs)
         self.node = node
