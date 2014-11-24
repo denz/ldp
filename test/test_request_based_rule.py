@@ -7,15 +7,16 @@ from ldp.rule import match_headers
 class EmptyResource(Resource):
     def on_node_set(self):
         pass
-
-
-class TestHeaderMatch(TestCase):
+class HeadersBasedRuleTest(TestCase):
     def setUp(self):
+      
         self.app = EmptyResource(None, __name__)
         self.app.debug = True
         self.c = self.app.test_client()
 
-    def ztest_simple_matching(self):
+class TestHeaderMatch(HeadersBasedRuleTest):
+
+    def test_simple_matching(self):
         @self.app.route(match_headers('/', Accept='application/json'))
         def json():
             return 'JSON'
@@ -53,11 +54,7 @@ class TestHeaderMatch(TestCase):
         response = self.c.get('/', headers={'Accept':'application/json', 'Test':'x20'})
         self.assertEqual(response.data, b'JSON20')
 
-class TestArgumentsCombinations(TestCase):
-    def setUp(self):
-        self.app = EmptyResource(None, __name__)
-        self.app.debug = True
-        self.c = self.app.test_client()        
+class TestArgumentsCombinations(HeadersBasedRuleTest):     
 
     def test_0(self):
         @self.app.route('/')

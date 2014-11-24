@@ -1,6 +1,6 @@
 import unittest
 from base import LdpTest
-from ldp import NS as LDP, ds
+from ldp import NS as LDP, ds, scheme
 from ldp.resource import (implied_types,
                           get_resource_class,
                           BasicContainer,
@@ -13,7 +13,7 @@ class TestResource(LdpTest):
     `http://www.w3.org/TR/ldp/#h3_ldpr-resource`_
     """
 
-    def ztest_options(self):
+    def test_options(self):
         for url in self.urls():
             response = self.c.open(url, method='OPTIONS')
             self.assertTrue(response.status_code < 500)
@@ -31,9 +31,9 @@ class TestResource(LdpTest):
             self.assertIn(LDP.RDFSource, response.headers['Link'])
             self.assertIn(LDP.Container, response.headers['Link'])
             self.assertIn(LDP.BasicContainer, response.headers['Link'])
-        print(ds.serialize(format='turtle').decode())
+        print(scheme.serialize(format='turtle').decode())
 
-    def ztest_append_implied_types(self):
+    def test_append_implied_types(self):
         self.assertEqual(set(implied_types(LDP.BasicContainer)),
                          set([LDP.Resource,
                               LDP.Container,
@@ -56,7 +56,13 @@ class TestResource(LdpTest):
                                             LDP.RDFSource,),
                          RDFSource
                          )
+        # self.assertEqual(get_resource_class(LDP.Resource,),
+        #                  Resource
+        #                  )
 
-        self.assertEqual(get_resource_class(LDP.Resource,),
-                         Resource
-                         )
+    def test_of_test(self):
+        response = self.c.get('/', headers={'Accept':'text/turtle'})
+        print(response.data.decode())
+
+        # response = self.c.get('/', headers={'Accept':'application/ld-json'})
+        # print(response.data.decode())
