@@ -149,9 +149,9 @@ class RDFSource(Resource):
     def on_node_set(self):
         super(RDFSource, self).on_node_set()
 
-        @self.route(match_headers('/', Accept='application/*'), methods=('GET',))
+        @self.route(match_headers('/', Accept='application/ld+json'), methods=('GET',))
         def ldjson():
-            return self.serialize(format='turtle')
+            return self.serialize(format='json-ld')
 
         @self.route('/', methods=('GET',))
         def default():
