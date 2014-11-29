@@ -44,12 +44,12 @@ class LdpTest(TestCase):
                          'path': 'test/alice.turtle'},
                         {'name': 'scheme',
                          'id': URIRef(LDP)}) as ds:
-            _dataset_ctx_stack.push(ds)
+                            _dataset_ctx_stack.push(ds)
         root_ref = URIRef(
             URL('')(scheme='http', netloc=self.hostname, path='/'))
-        
+
         scheme.add((root_ref, RDF.type, LDP.RDFSource))
-        
+
         root_resource = Resource(scheme, root_ref)
 
         for ldp_type in implied_types(LDP.RDFSource):
