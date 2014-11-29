@@ -6,26 +6,55 @@
     Defines all the global objects that are proxies to the current
     active context.
 """
+import sys
+import types
 
-from functools import partial
 from werkzeug.local import LocalStack, LocalProxy
 
 
-def _lookup_dataset_object(name):
-    top = _dataset_ctx_stack.top
-    if top is None:
-        raise RuntimeError('working outside of dataset context')
-    return top
+
+modname = __name__
 
 
-def _lookup_data_object():
-    return ds._aggregated_graphs['data']
 
-def _lookup_scheme_object():
-    return ds._aggregated_graphs['scheme']
 
-# context locals
-_dataset_ctx_stack = LocalStack()
-ds = LocalProxy(partial(_lookup_dataset_object, 'dataset'))
-data = LocalProxy(_lookup_data_object)
-scheme = LocalProxy(_lookup_scheme_object)
+class GlobalsModule(types.ModuleType):
+    __all__ = ('_dataset_ctx_stack', 'dataset', 'data', 'aggregation')
+    __package__ = __package__
+    __loader__ = __loader__
+    __name__ = __name__
+    __path__ = __file__
+    __initializing__ = __initializing__
+    _dataset_ctx_stack = LocalStack()
+    def __init__(self, *args, **kwargs):
+        super(GlobalsModule, self).__init__(*args, **kwargs)
+        self.dataset = LocalProxy(self._lookup_dataset)
+        self.data = LocalProxy(self._lookup_data_mapping)
+        self.aggregation = LocalProxy(self._lookup_data_aggregation)
+
+
+    def _lookup_dataset(self):
+        top = self._dataset_ctx_stack.top
+        if top is None:
+            raise RuntimeError('working outside of dataset context')
+        return top
+
+    def _lookup_data_mapping(self):
+        return self.dataset.g
+
+    def _lookup_data_aggregation(self):
+        return self.data.aggregation
+
+    def _lookup_named_graph(self, name):
+        return self.data[name]
+
+    def __getattr__(self, name):
+        from werkzeug.local import LocalProxy
+        from functools import partial
+        if name not in self.__dict__:
+            self.__dict__[name] = LocalProxy(
+                partial(self._lookup_named_graph, name))
+
+        return self.__dict__[name]
+
+sys.modules[__name__] = GlobalsModule(__name__, __doc__)
