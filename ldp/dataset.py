@@ -35,11 +35,13 @@ class GraphGetter(object):
     def __setitem__(self, name, identifier):
         self.map[name] = self.ds.graph(identifier)
         return self.map[name]
+
 def _push_dataset_ctx(**graph_descriptors):
     ds = NamedContextDataset()
     for name, descriptor in graph_descriptors.items():
         ds.g[name] = ds.parse(**descriptor)
     _dataset_ctx_stack.push(ds)
+    return ds
 
 def _pop_dataset_ctx():
     _dataset_ctx_stack.pop()
@@ -51,7 +53,7 @@ class NamedContextDataset(Dataset):
 def context(**graph_descriptors):
 
     try:
-        _push_dataset_ctx(**graph_descriptors)    
-        yield ds
+        
+        yield _push_dataset_ctx(**graph_descriptors)    
     finally:
         _pop_dataset_ctx()

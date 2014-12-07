@@ -4,13 +4,11 @@ from unittest import TestCase
 from flask import Flask
 from ldp.resource import Resource
 from ldp.rule import match_headers
-class EmptyResource(Resource):
-    def on_node_set(self):
-        pass
+from ldp import LDPApp
+
 class HeadersBasedRuleTest(TestCase):
     def setUp(self):
-      
-        self.app = EmptyResource(None, __name__)
+        self.app = LDPApp(__name__)
         self.app.debug = True
         self.c = self.app.test_client()
 
