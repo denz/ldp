@@ -1,5 +1,6 @@
 from flask import Flask
 import re
+from pprint import pformat
 from collections import defaultdict
 
 
@@ -135,18 +136,6 @@ class HeadersRule(Flask.url_rule_class):
         return re.compile(regex, re.UNICODE)
 
 
-class with_context(str):
-    __slots__ = ('name', 'context')
-
-    def __new__(cls, ref, name, context=None):
-        ret = str.__new__(cls, ref)
-
-        ret.name = name
-        ret.context = context
-
-        return ret
-
-
 class ResourceMap(object):
     default_converters = DEFAULT_CONVERTERS
 
@@ -184,6 +173,10 @@ class ResourceMap(object):
 
     def get(self, endpoint):
         return self._rules_by_endpoint.get(endpoint, None)
+
+    def __repr__(self):
+        rules = self.iter_rules()
+        return '%s(%s)' % (self.__class__.__name__, pformat(list(rules)))
 
 
     def endpoint_rules(self, endpoint, args):
@@ -239,12 +232,12 @@ class URIRefRule(RuleFactory):
                         exc_pos = conv_regex.find(exclusion) + len(exclusion)
                         conv_regex = conv_regex[:exc_pos] + '<' + conv_regex[exc_pos:]
                 varname = 'id%s'%i
-                argmap.setdefault(name, []).append(varname)
+                argmap[varname] = name
                 template += '{%s}'%name
                 rule_re += _rule_template%(varname, conv_regex)
                 i += 1
 
-        return (re.compile(rule_re), template, argmap)
+        return (rule_re, template, argmap)
 
     def get_converter(self, variable_name, converter_name, args, kwargs):
         """Looks up the converter for the given parameter.
@@ -257,7 +250,7 @@ class URIRefRule(RuleFactory):
 
     @property
     def rule_re(self):
-        return self.parsed_rule[0]
+        return re.compile(self.parsed_rule[0])
 
     @property
     def template(self):
@@ -269,4 +262,4 @@ class URIRefRule(RuleFactory):
 
     @property
     def arguments(self):
-        return self.argmap.keys()
+        return set(self.argmap.values())
