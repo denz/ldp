@@ -11,13 +11,6 @@ import types
 
 from werkzeug.local import LocalStack, LocalProxy
 
-
-
-modname = __name__
-
-
-
-
 class GlobalsModule(types.ModuleType):
     __all__ = ('_dataset_ctx_stack', 'dataset', 'data', 'aggregation')
     __package__ = __package__
