@@ -1,12 +1,48 @@
 from flask import Flask
+import re
+from collections import defaultdict
+
+
+from rdflib import URIRef
+from werkzeug.routing import DEFAULT_CONVERTERS, RuleFactory
 from werkzeug.routing import (Map,
                               parse_rule,
                               parse_converter_args,
                               RequestAliasRedirect,
-                              ValidationError)
+                              ValidationError, Rule)
 from werkzeug._compat import iteritems
+from flask.helpers import locked_cached_property as cached_property
 import fnmatch
-import re
+
+
+_uriref_rule_re = re.compile(r'''
+    (?P<head>[^<]*)                           # static rule data
+    <
+    (?:
+        (?P<converter>[a-zA-Z_][a-zA-Z0-9_]*)   # converter name
+        (?:\((?P<args>.*?)\))?                  # converter arguments
+        \:                                      # variable delimiter
+    )?
+    (?P<variable>[a-zA-Z_][a-zA-Z0-9_]*)        # variable name
+    >
+    (?P<tail>.*)                           # tail of rule
+''', re.VERBOSE)
+
+
+_rule_template = r'(?P<%s>%s)'
+
+
+def iter_rule_parts(rule, converters=DEFAULT_CONVERTERS):
+    while rule:
+        match = re.match(_uriref_rule_re, rule)
+        if not match:
+            break
+        group = match.groupdict()
+        if group['head']:
+            yield group['head']
+        yield (group['variable'], group['args'], group['converter'])
+        rule = group['tail']
+    yield rule
 
 
 class match_headers(str):
@@ -97,3 +133,140 @@ class HeadersRule(Flask.url_rule_class):
             u''.join(regex_parts)
         )
         return re.compile(regex, re.UNICODE)
+
+
+class with_context(str):
+    __slots__ = ('name', 'context')
+
+    def __new__(cls, ref, name, context=None):
+        ret = str.__new__(cls, ref)
+
+        ret.name = name
+        ret.context = context
+
+        return ret
+
+
+class ResourceMap(object):
+    default_converters = DEFAULT_CONVERTERS
+
+    def __init__(self, rules=(), converters=None):
+        self._rules = []
+        self._rules_by_endpoint = {}
+
+        self.converters = self.default_converters.copy()
+        if converters:
+            self.converters.update(converters)
+
+        for rulefactory in rules:
+            self.add(rulefactory)
+
+    def iter_rules(self, endpoint=None):
+        """Iterate over all rules or the rules of an endpoint.
+
+        :param endpoint: if provided only the rules for that endpoint
+                         are returned.
+        :return: an iterator
+        """
+        if endpoint is not None:
+            return iter(self._rules_by_endpoint[endpoint])
+        return iter(self._rules)
+
+    def add(self, rulefactory):
+        """Add a new rule or factory to the map and bind it.  Requires that the
+        rule is not bound to another map.
+
+        :param rulefactory: a :class:`Rule` or :class:`RuleFactory`
+        """
+        for rule in rulefactory.get_rules(self):
+            self._rules.append(rule)
+            self._rules_by_endpoint.setdefault(rule.endpoint, []).append(rule)
+
+    def get(self, endpoint):
+        return self._rules_by_endpoint.get(endpoint, None)
+
+
+    def endpoint_rules(self, endpoint, args):
+        rules = self.get(endpoint)
+        if rules is None:
+            return rules
+
+        return (rule for rule in self.suiteable_rules(args, *rules))
+
+    def suiteable_rules(self, arguments, *rules):
+        arguments = set(arguments)
+        rules = (rule for rule 
+                    in rules if arguments.issuperset(rule.arguments))
+
+        rules_by_suiteability = sorted(rules,
+                        key=lambda rule: len(arguments.difference(set(rule.arguments))))
+        if len(rules_by_suiteability):
+            return rules_by_suiteability
+
+class URIRefRule(RuleFactory):
+    def __init__(self, rule, varname, endpoint, context, map, **options):
+        self.rule = rule
+        self.varname = varname
+        self.endpoint = endpoint
+        self.context = context
+        self.map = map
+
+    def resource(self, **args):
+        return self.context.resource(URIRef(self.template.format(**args)))
+
+    def get_rules(self, map):
+        yield self
+
+    @cached_property
+    def parsed_rule(self):
+        rule_re = ''
+        template = ''
+        argmap = {}
+        i = 0
+        for part in iter_rule_parts(self.rule):
+            if isinstance(part, str):
+                rule_re += re.escape(part)
+                template += part
+            else:
+                name, args, converter = part
+                converter = self.map.converters.get(part[2], self.map.converters['default'])
+                conv_regex = converter.regex
+                exclusion = None
+                exclusion = re.match(r'\[(.*\/.*)\]', conv_regex)
+                if exclusion:
+                    exclusion = exclusion.groups()[0]
+                    if not '<' in exclusion:
+                        exc_pos = conv_regex.find(exclusion) + len(exclusion)
+                        conv_regex = conv_regex[:exc_pos] + '<' + conv_regex[exc_pos:]
+                varname = 'id%s'%i
+                argmap.setdefault(name, []).append(varname)
+                template += '{%s}'%name
+                rule_re += _rule_template%(varname, conv_regex)
+                i += 1
+
+        return (re.compile(rule_re), template, argmap)
+
+    def get_converter(self, variable_name, converter_name, args, kwargs):
+        """Looks up the converter for the given parameter.
+
+        .. versionadded:: 0.9
+        """
+        if not converter_name in self.map.converters:
+            raise LookupError('the converter %r does not exist' % converter_name)
+        return self.map.converters[converter_name](self.map, *args, **kwargs)
+
+    @property
+    def rule_re(self):
+        return self.parsed_rule[0]
+
+    @property
+    def template(self):
+        return self.parsed_rule[1]
+
+    @property
+    def argmap(self):
+        return self.parsed_rule[2]
+
+    @property
+    def arguments(self):
+        return self.argmap.keys()
