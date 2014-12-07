@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 from rdflib.graph import ReadOnlyGraphAggregate, Dataset, Graph
-
 from .globals import _dataset_ctx_stack
 
 
@@ -14,7 +13,6 @@ class DatasetGraphAggregation(ReadOnlyGraphAggregate):
         self.graphs = valuesview
 
 class GraphGetter(object):
-
     def __init__(self, ds=None):
         self.ds = ds
         self.map = {}
@@ -37,18 +35,23 @@ class GraphGetter(object):
     def __setitem__(self, name, identifier):
         self.map[name] = self.ds.graph(identifier)
         return self.map[name]
+def _push_dataset_ctx(**graph_descriptors):
+    ds = NamedContextDataset()
+    for name, descriptor in graph_descriptors.items():
+        ds.g[name] = ds.parse(**descriptor)
+    _dataset_ctx_stack.push(ds)
 
+def _pop_dataset_ctx():
+    _dataset_ctx_stack.pop()
 
 class NamedContextDataset(Dataset):
     g = GraphGetter()
 
 @contextmanager
 def context(**graph_descriptors):
-    ds = NamedContextDataset()
-    for name, descriptor in graph_descriptors.items():
-        ds.g[name] = ds.parse(**descriptor)
+
     try:
-        _dataset_ctx_stack.push(ds)
+        _push_dataset_ctx(**graph_descriptors)    
         yield ds
     finally:
-        _dataset_ctx_stack.pop()
+        _pop_dataset_ctx()
