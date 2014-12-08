@@ -2,15 +2,15 @@ from unittest import TestCase
 import re
 from rdflib import URIRef, Literal
 from rdflib.namespace import *
-from rdflib.resource import Resource
 
-from werkzeug.routing import Map
+
+from werkzeug.routing import Map, BuildError
 from flask.helpers import locked_cached_property as cached_property, url_for
 from flask import app
 
 from ldp.url import URL
 from ldp import NS as LDP, LDPApp
-from ldp.rule import with_context as rmap, URIRefRule
+from ldp.rule import URIRefRule
 from ldp.globals import continents
 from ldp.dataset import _push_dataset_ctx, _pop_dataset_ctx
 from ldp.helpers import url_for as url_for_resource
@@ -83,7 +83,7 @@ class TestURIRefRule(TestCase):
     def setUp(self):
         self.app = app.test_client()
 
-    def ztest_resource_retrieving(self):
+    def test_resource_retrieving(self):
         rule = URIRefRule('http://www.telegraphis.net/data/continents/<code>#<code>',
                           'code',
                           'xxx',
@@ -94,13 +94,15 @@ class TestURIRefRule(TestCase):
         r = rule.resource(code='XX')
         self.assertFalse(list(r[GN.name]))
 
-    def ztest_url_mapping(self):
+    def test_url_mapping(self):
         self.assertEqual(self.app.get('/population/AF').data, b'922011000')
         self.assertEqual(self.app.get('/value/x').data, b'valuex')
 
     def test_url_for_resource(self):
-        self.assertEqual(self.app.get('/linkasia/AF').data, b'Africa sends to /population/AS')
-        response = self.app.get('/builderror')
-        self.assertEqual(response.status_code, 500)
-        # self.assertIn(b'No endpoint', response.data)
-
+        response = self.app.get('/linkasia/AF')
+        self.assertEqual(response.data, b'Africa sends to /population/AS')
+        # with self.assertRaises(BuildError):
+        # try:
+        #   response = self.app.get('/builderror')
+        # except Exception as e:
+        #   print([ e])
