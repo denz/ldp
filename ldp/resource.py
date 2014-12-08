@@ -12,7 +12,7 @@ from rdflib.namespace import RDF
 from treelib import Tree, Node
 
 
-from ldp import NS as LDP
+from ldp import NS as LDP, resource as r
 from ldp.rule import HeadersRule, match_headers
 
 
@@ -25,31 +25,24 @@ def ldp_types_hierarchy():
     h.create_node(LDP.BasicContainer, LDP.BasicContainer, LDP.Container)
     h.create_node(LDP.DirectContainer, LDP.DirectContainer, LDP.Container)
     h.create_node(LDP.IndirectContainer, LDP.IndirectContainer, LDP.Container)
-    return h
+    l = []
 
-TYPES = ldp_types_hierarchy()
+    l.append(LDP.Resource)
+    l.append(LDP.RDFSource)
+    l.append(LDP.NonRDFSource)
+    l.append(LDP.Container)
+    l.append(LDP.BasicContainer)
+    l.append(LDP.DirectContainer)
+    l.append(LDP.IndirectContainer)
+
+    return h, l
+
+TYPES, TYPES_LIST = ldp_types_hierarchy()
 
 
 def subclasslist(base):
     subs = (subclasslist(sub) for sub in base.__subclasses__())
     return [base, ] + list(chain(*subs))
-
-
-def resource_builder(tree, node, *args, debug=True, **kwargs):
-    '''
-    Maps rdflib.Resource to ldp.Resource app
-    '''
-    resource_types = [r.identifier for r
-                      in node.data.objects(RDF.type)
-                      if r.identifier.startswith(LDP)]
-
-    app = get_resource_class(*resource_types)(node, *args, **kwargs)
-
-    app.debug = debug
-
-    app.logger.debug('Built %s' % app)
-
-    return app
 
 
 def get_resource_class(*ldp_types, hierarchy=TYPES):
@@ -65,6 +58,7 @@ def implied_types(*explicit_types, hierarchy=TYPES):
     for explicit_type in explicit_types:
         if not hierarchy.contains(explicit_type):
             continue
+        yield explicit_type
         for implicit_type in hierarchy.rsearch(explicit_type):
             if implicit_type not in explicit_types:
                 if implicit_type not in implicit_types:
@@ -72,13 +66,23 @@ def implied_types(*explicit_types, hierarchy=TYPES):
                     implicit_types.append(implicit_type)
 
 
+RESOURCE_APPS = {}
+
+
+def get_resource_app(ldp_types):
+    resource_class = get_resource_class(*ldp_types)
+    if not resource_class in RESOURCE_APPS:
+        app = resource_class(current_app.name)
+        app.config.from_object(current_app.config)
+        app.build()
+        RESOURCE_APPS[resource_class] = app
+    return RESOURCE_APPS[resource_class]
+
+
 class Resource(Flask):
     ldp_type = LDP.Resource
-    url_rule_class = HeadersRule
 
-    def __init__(self, node, *args, **kwargs):
-        super(Resource, self).__init__(*args, **kwargs)
-        self.node = node
+    url_rule_class = HeadersRule
 
     def create_url_adapter(self, request):
         adapter = super(Resource, self).create_url_adapter(request)
@@ -94,68 +98,37 @@ class Resource(Flask):
             adapter.match = adapter.match.__get__(adapter, adapter.__class__)
         return adapter
 
-    @property
-    def node(self):
-        return self._node
-
-    @node.setter
-    def node(self, node):
-        self._node = node
-        # reset all application if new node set
-        self.view_functions = {}
-        self._error_handlers = {}
-        self.error_handler_spec = {None: self._error_handlers}
-        self.url_build_error_handlers = []
-        self.before_request_funcs = {}
-        self.before_first_request_funcs = []
-        self.after_request_funcs = {}
-        self.teardown_request_funcs = {}
-        self.teardown_appcontext_funcs = []
-        self.url_value_preprocessors = {}
-        self.url_default_functions = {}
-        self.template_context_processors = {
-            None: [_default_template_ctx_processor]
-        }
-        self.blueprints = {}
-        self.extensions = {}
-        self.url_map = Map()
-        self._got_first_request = False
-        self._before_request_lock = Lock()
-        self.on_node_set()
-
-    def on_node_set(self):
-        resource_types = [r.identifier for r
-                          in self.node.data.objects(RDF.type)
-                          if r.identifier.startswith(LDP)]
-
+    def build(self):
         @self.after_request
         def set_ldp_link_types(response):
-
             response.headers['Link'] = '\t,'.join(('<%s>; rel="type"' % r_type
-                                                   for r_type in resource_types))
+                                                   for r_type in implied_types(self.ldp_type)))
             return response
 
 
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
 
-    def serialize(self, *args, **kwargs):
-        r = self.node.data
+    def serialize_resource(self, *args, **kwargs):
         g = Graph()
         for (p, o) in r.graph[r.identifier::]:
             g.set((r.identifier, p, o))
         return g.serialize(*args, **kwargs)
 
-    def on_node_set(self):
-        super(RDFSource, self).on_node_set()
+    def build(self):
 
-        @self.route(match_headers('/', Accept='application/ld+json'), methods=('GET',))
-        def ldjson():
-            return self.serialize(format='json-ld')
+        super(RDFSource, self).build()
 
-        @self.route('/', methods=('GET',))
-        def default():
-            return self.serialize(format='turtle')
+
+        @self.route(match_headers('/<path:path>',
+                                  Accept='application/ld+json'),
+                                  methods=('GET',))
+        def ldjson(path):
+            return self.serialize_resource(format='json-ld')
+
+        @self.route('/<path:path>', methods=('GET',))
+        def default(path):
+            return self.serialize_resource(format='turtle')
 
 
 class NonRDFSource(Resource):

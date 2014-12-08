@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from rdflib.graph import ReadOnlyGraphAggregate, Dataset, Graph
+from rdflib.graph import ReadOnlyGraphAggregate, Dataset, Graph, ConjunctiveGraph
 from .globals import _dataset_ctx_stack
 
 
@@ -39,7 +39,10 @@ class GraphGetter(object):
 def _push_dataset_ctx(**graph_descriptors):
     ds = NamedContextDataset()
     for name, descriptor in graph_descriptors.items():
-        ds.g[name] = ds.parse(**descriptor)
+        if set(descriptor).intersection(set(('data', 'file', 'source'))):
+            ds.g[name] = ds.parse(**descriptor)
+        else:
+            ds.g[name] = ConjunctiveGraph()
     _dataset_ctx_stack.push(ds)
     return ds
 

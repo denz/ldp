@@ -182,10 +182,19 @@ tokens in the HTTP response header `Allow`.
   *[LDPR]: Linked Data Platform Resource
   *[LDPC]: Linked Data Platform Container
 """
+from rdflib.namespace import Namespace
+
 from test.requirements.base import LdpTestCase
 
+LDP = Namespace('http://www.w3.org/ns/ldp#')
+
+
+CONTINENTS = Namespace('http://www.telegraphis.net/data/continents/')
 
 class LdprGeneral(LdpTestCase):
+    GRAPHS = {'continents': {'source': 'test/continents.rdf',
+                             'publicID': CONTINENTS},
+              'ldp':{'publicID':LDP}}
 
     def test_4_2_1_1(self):
         """
@@ -212,7 +221,9 @@ a link relation type of type (that is, rel='type')
 in all responses to requests made 
 to an LDPR's HTTP Request-URI [RFC5988]. 
         """
-        pass
+        response = self.app.get('/population/AF')
+        print(response.data.decode())
+        print(response.headers)
 
     def test_4_2_1_5(self):
         """

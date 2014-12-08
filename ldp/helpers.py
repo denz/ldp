@@ -27,3 +27,11 @@ def url_for(ref):
 
     error = BuildError('No endpoint for identifier %r found'%ref, None, None)
     return app.handle_url_build_error(error, None, None)
+
+
+def wants_rdfsource(request, rdfsource_types=['application/ld+json', 'text/turtle']):
+    best = request.accept_mimetypes \
+        .best_match(rdfsource_types + ['text/html'])
+    return best in rdfsource_types and \
+        request.accept_mimetypes[best] > \
+        request.accept_mimetypes['text/html']

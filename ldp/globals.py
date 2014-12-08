@@ -12,19 +12,27 @@ import types
 from werkzeug.local import LocalStack, LocalProxy
 
 class GlobalsModule(types.ModuleType):
-    __all__ = ('_dataset_ctx_stack', 'dataset', 'data', 'aggregation')
+    __all__ = ('_dataset_ctx_stack', 'dataset', 'data', 'aggregation', 'resource')
     __package__ = __package__
     __loader__ = __loader__
     __name__ = __name__
     __path__ = __file__
     __initializing__ = __initializing__
     _dataset_ctx_stack = LocalStack()
+    _resource_ctx_stack = LocalStack()
+
     def __init__(self, *args, **kwargs):
         super(GlobalsModule, self).__init__(*args, **kwargs)
         self.dataset = LocalProxy(self._lookup_dataset)
         self.data = LocalProxy(self._lookup_data_mapping)
         self.aggregation = LocalProxy(self._lookup_data_aggregation)
+        self.resource = LocalProxy(self._lookup_resource_stack)
 
+    def _lookup_resource_stack(self):
+        top = self._resource_ctx_stack.top
+        if top is None:
+            raise RuntimeError('working outside of resource context')
+        return top
 
     def _lookup_dataset(self):
         top = self._dataset_ctx_stack.top
