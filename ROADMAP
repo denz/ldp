@@ -4,10 +4,12 @@
     ** docs generator 
     ** Primitive convertor of RDF store to `treelib` `ResourceTree`
     ** nested applications dispatcher 
-    ** LDP ready HTTP headers based request dispatcher
+    ** LDP ready HTTP headers based request dispatcher (MethodView)
+    ** RDFSource generation
+
  
  * 0.0.2
-    ** RDFSource generation
+    ** templates needs reverse by resource identifier 
     ** SPARQL(robust) based convertor of RDF store to `treelib` tree of resources 
     ** ??(http://marmotta.apache.org/ldpath/)??
     ** ResourceTree to filesystem and filesystem to `ResourceTree` convertor. https://github.com/smontanaro/pylockfile) aware
