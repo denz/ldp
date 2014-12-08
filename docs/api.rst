@@ -7,6 +7,17 @@ API
    :members:
    :undoc-members:
 
+.. automodule:: ldp.dataset
+   :members:
+   :undoc-members:
+
+.. automodule:: ldp.rule
+   :members:
+   :undoc-members:
+
+.. automodule:: ldp.resource
+   :members:
+   :undoc-members:
 
 .. toctree::
    :maxdepth: 2

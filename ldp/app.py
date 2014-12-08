@@ -1,96 +1,110 @@
+
+import logging
+
 from flask import Flask
-from werkzeug.utils import cached_property
-from werkzeug.wsgi import DispatcherMiddleware
-from flask.globals import _app_ctx_stack
+from flask.helpers import _endpoint_from_view_func
+from flask.globals import _request_ctx_stack
+
+from rdflib.namespace import *
+from rdflib.term import _LOGGER
 
 
-class NestedFlask(DispatcherMiddleware, Flask):
-    """Nested applications dispatcher.
-    Same as :class:`werkzeug.DispatcherMiddleware` but proxies root application
-    methods.
+from .rule import HeadersRule, URIRefRule, ResourceMap
+from . import aggregation
+from ldp.helpers import wants_rdfsource
+from ldp.resource import TYPES_LIST, get_resource_app
+from ldp import NS as LDP
+from ldp.globals import _resource_ctx_stack
 
-    This allows to create nested application trees 
-    """
-    def __call__(self, environ, start_response):
-        script = environ.get('PATH_INFO', '')
-        path_info = ''
-        while '/' in script:
-            if script in self.mounts:
-                app = self.mounts[script]
-                break
-            items = script.split('/')
-            script = '/'.join(items[:-1])
-            path_info = '/%s%s' % (items[-1], path_info)
-        else:
-            app = self.mounts.get(script, self.app)
-        original_script_name = environ.get('SCRIPT_NAME', '')
-        environ['SCRIPT_NAME'] = original_script_name + script
-        environ['PATH_INFO'] = path_info
-
-        if self.app != app:
-            with self.app.app_context():
-                return app(environ, start_response)
-        else:
-            return app(environ, start_response)
-
-    def __getattr__(self, name):
-        self.__dict__[name] = getattr(self.app, name)
-        return self.__dict__[name]
-
-    def generate_apptree(self):
-        for name in self.mounts:
-            if isinstance(self.mounts[name], NestedFlask):
-                self.mounts[name].generate_apptree()
-
-class NestedFlaskMapping(dict):
-    """Generates :class:`treelib.Tree` based mapping for nested flask recursively on the fly
-    """
-    def __init__(self, tree, nodes, constructor, *args, **kwargs):
-        self.nodes = nodes
-        self.nested_tags = [node.tag for node in nodes]
-        self.tree = tree
-        self.constructor = constructor
-        super(NestedFlaskMapping, self).__init__(*args, **kwargs)
-
-    def __getitem__(self, tag):
-        if super(NestedFlaskMapping, self).__contains__(tag):
-            return super(NestedFlaskMapping, self).__getitem__(tag)
-
-        if not tag in self.nested_tags:
-            raise KeyError(tag)
-
-        app = self.constructor(self.tree,
-                               self.nodes[self.nested_tags.index(tag)])
-        super(NestedFlaskMapping, self).__setitem__(tag, app)
-
-        return super(NestedFlaskMapping, self).__getitem__(tag)
-
-    def __iter__(self):
-        for nid in self.nested_tags:
-            self[nid]
-            yield nid
-
-    def __len__(self):
-        return len(self.nodes)
-
-    def __contains__(self, tag):
-        if not super(NestedFlaskMapping, self).__contains__(tag):
-            return tag in self.nested_tags
-        return True
-
-class LdpApp(NestedFlask):
-    """Test App docs
-    """
-    @cached_property
-    def storage(self):
-        storage = self.config['STORAGE']
+_LOGGER.setLevel(logging.ERROR)
 
 
-def Ldp(*args, app=None, storage=None, **options):
-    '''
-    Creates ldp application or generates resource views for existing
-    '''
-    if app is None:
-        app = LdpApp(*args, **options)
-    app.config.setdefault('STORAGE', storage)
-    return app
+class LDPApp(Flask):
+    url_rule_class = HeadersRule
+    resource_rule_class = URIRefRule
+    default_resource_types =[ LDP.RDFSource, ]
+
+    def __init__(self, *args, **kwargs):
+        super(LDPApp, self).__init__(*args, **kwargs)
+        self.resource_map = ResourceMap()
+        self.resource_view_functions = {}
+
+    def create_url_adapter(self, request):
+        adapter = super(LDPApp, self).create_url_adapter(request)
+        if request is not None:
+            for rule in adapter.map._rules:
+                rule.headers = request.headers
+
+            def match(self, *args, **kwargs):
+                rv = adapter.match(*args, **kwargs)
+                for rule in adapter.map._rules:
+                    del rules.__dict__['headers']
+                return rv
+            adapter.match = adapter.match.__get__(adapter, adapter.__class__)
+        return adapter
+
+    def add_resource_rule(self, rule, varname, endpoint, view_func, context, **options):
+        if endpoint is None:
+            endpoint = _endpoint_from_view_func(view_func)
+        
+        rule = self.resource_rule_class(rule,
+                                        varname,
+                                        endpoint,
+                                        context, 
+                                        self.resource_map,
+                                        **options)
+
+        self.resource_map.add(rule)
+        if view_func is not None:
+            old_func = self.resource_view_functions.get(endpoint)
+            if old_func is not None and old_func != view_func:
+                raise AssertionError('View function mapping is overwriting an '
+                                     'existing endpoint function: %s' % endpoint)
+            self.resource_view_functions[endpoint] = view_func
+
+    def resource(self, varname, rule, c=aggregation, **options):
+        def decorator(view_func):
+
+            endpoint = options.pop('endpoint', None)
+            self.add_resource_rule(rule, varname, endpoint, view_func, c, **options)
+            return view_func
+        return decorator
+
+
+    def dispatch_request(self):
+        req = _request_ctx_stack.top.request
+        if req.routing_exception is not None:
+            self.raise_routing_exception(req)
+        rule = req.url_rule
+        resource_rules = self.resource_map.endpoint_rules(req.endpoint,
+                                                          req.view_args)
+        # make ordinal dispatching if no resource rule mapped to url
+        if resource_rules is None:
+            return super(LDPApp, self).dispatch_request()
+
+        for rule in resource_rules:
+            args = req.view_args.copy()
+            value = rule.resource(**args)
+            if value is not None:
+                return self.resource_view(req, rule, value, args)
+
+        # if view is bound to resource but arguments list
+        # parsed by url_adapter is not suitable = raise 404
+        self.raise_routing_exception(req)
+
+    def resource_view(self, request, rule, resource, args):
+        if not wants_rdfsource(request):
+            args[rule.varname] = resource
+            return self.resource_view_functions[rule.endpoint](**args)
+
+        ldp_types = [r.identifier for r in resource[RDF.type] if r.identifier in TYPES_LIST]
+
+        if not ldp_types:
+            ldp_types = self.default_resource_types
+
+        app = get_resource_app(ldp_types)
+
+        _resource_ctx_stack.push(resource)
+        with app.request_context(request.environ):
+            return app.full_dispatch_request()
+        _resource_ctx_stack.pop()

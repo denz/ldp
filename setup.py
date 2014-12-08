@@ -62,8 +62,7 @@ if __name__ == '__main__':
         include_package_data=True,
         zip_safe=False,
         test_suite='test',
-        install_requires=[
-        ],
+        install_requires=['flask', 'networkx'],
         tests_require=[],
         entry_points={
         },
