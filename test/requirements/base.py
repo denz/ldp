@@ -17,9 +17,9 @@ UNKNOWN = URIRef('xxx')
 
 app = LDPApp(__name__)
 
-@app.route('/population/<continent>')
+@app.route('/resource/<continent>', methods=('GET', 'PUT'))
 @app.resource('continent', CONTINENTS['<continent>#<continent>'])
-def continent(continent):
+def continent_resource(continent):
     return continent.value(GN.population)
 
 class CONFIG:

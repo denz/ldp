@@ -1,20 +1,27 @@
+import re
 from itertools import chain
 from collections import OrderedDict
 from functools import wraps
 from threading import Lock
+from uuid import uuid5 as uuid
+from zlib import adler32
+
 from werkzeug.routing import Map
-import re
+from werkzeug.exceptions import Forbidden, Conflict, PreconditionFailed
+from werkzeug.datastructures import HeaderSet
+
 from flask import (Blueprint, Flask, request, current_app, g)
 from flask.ext.negotiation import provides
 from flask.templating import _default_template_ctx_processor
-from rdflib import Graph
+
+from rdflib import ConjunctiveGraph
 from rdflib.namespace import RDF
+
 from treelib import Tree, Node
 
 
-from ldp import NS as LDP, resource as r
+from ldp import NS as LDP, resource as r, dataset as ds
 from ldp.rule import HeadersRule, match_headers
-
 
 def ldp_types_hierarchy():
     h = Tree()
@@ -79,10 +86,16 @@ def get_resource_app(ldp_types):
     return RESOURCE_APPS[resource_class]
 
 
+class LDPResponse(Flask.response_class):
+    default_mimetype = 'application/ld+json; charset=utf-8'
+
 class Resource(Flask):
     ldp_type = LDP.Resource
+    response_class = LDPResponse
 
     url_rule_class = HeadersRule
+
+    patch_media_types = ('application/ld+json', 'text/turtle')
 
     def create_url_adapter(self, request):
         adapter = super(Resource, self).create_url_adapter(request)
@@ -98,38 +111,133 @@ class Resource(Flask):
             adapter.match = adapter.match.__get__(adapter, adapter.__class__)
         return adapter
 
+
+    def make_default_options_response(self, *args, **kwargs):
+        '''
+        Add `Accept-Patch` headers to default options
+        '''
+        response = super(Resource, self).make_default_options_response(*args, **kwargs)
+        if 'PATCH' in response.allow:
+            response.headers['Accept-Patch'] = HeaderSet(self.patch_media_types)
+        return response
+
+    def get_etag(self, resource):
+        return str(adler32(bytes(resource.identifier, 'utf-8')))
+
     def build(self):
+
+        @self.before_request
+        def check_if_match_etag():
+            if 'If-Match' in request.headers:
+                if not self.get_etag(r) == request.headers['If-Match']:
+                    raise PreconditionFailed('Resource changed')
+
         @self.after_request
         def set_ldp_link_types(response):
-            response.headers['Link'] = '\t,'.join(('<%s>; rel="type"' % r_type
-                                                   for r_type in implied_types(self.ldp_type)))
+            response.headers['Link'] = HeaderSet('%s;rel=type'%t for t in implied_types(self.ldp_type))
             return response
+
+        @self.after_request
+        def set_etag(response):
+            response.headers['ETag'] = self.get_etag(r)
+            return response
+
+        @self.route(match_headers('/<path:url>',
+                               **{'Content-Type':'application/ld+json'}),
+                                 methods=('PUT',))
+        @self.require_authorization
+        def replace_from_ldjson(url):
+            self.replace_resource(r, data=request.data,
+                                 format='json-ld',
+                                 publicID=r.identifier)
+            return self.make_response(('', 204, ()))
+
+        @self.route(match_headers('/<path:url>',
+                               **{'Content-Type':'text/turtle'}),
+                                 methods=('PUT',))
+        @self.require_authorization
+        def replace_from_turtle(url):
+            self.replace_resource(r,    data=request.data,
+                                        format='turtle',
+                                        publicID=r.identifier)
+            return self.make_response(('', 204, ()))
+
+
+    def replace_resource(self, resource, **kwargs):
+        g = ConjunctiveGraph()
+        g.parse(**kwargs)
+
+        removed = set()
+        added = set()
+
+        for s,p,o,c in ds.quads((resource.identifier, None, None, None)):
+            if not s == resource.identifier:
+                raise Conflict('Cant remove from third party resource %r'%s)
+
+            if self.allowed_to_remove(ds, s, p, o, c):
+                removed.add((s, p, o, c))
+            else:
+                raise Forbidden('You dont have permission to remove %r of %r'%(p,s))
+
+        for s,p,o in g[::]:
+            if not s == resource.identifier:
+                raise Conflict('Cant add to third party resource %r'%s)
+            if self.allowed_to_add(ds, s, p, o, c):
+                added.add((s, p, o, c))
+            else:
+                raise Forbidden('You dont have permission to add %r to %r'%((p,o),s))
+
+        for quad in removed.difference(added):
+            ds.remove(quad)
+
+        for quad in added.difference(removed):
+            ds.add(quad)
+
+        return self.on_resource_modified(resource)
+
+    def require_authorization(self, view):
+        @wraps(view)
+        def authorizator(*args, **kwargs):
+            return view(*args, **kwargs)
+
+        return authorizator
+
+    def allowed_to_remove(self, ds, s, p, o, c):
+        return True
+
+    def allowed_to_add(self, ds, s, p, o, c):
+        return True
+
+    def on_resource_modified(self, resource):
+        return resource
 
 
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
 
     def serialize_resource(self, *args, **kwargs):
-        g = Graph()
+        g = ConjunctiveGraph()
         for (p, o) in r.graph[r.identifier::]:
             g.set((r.identifier, p, o))
         return g.serialize(*args, **kwargs)
 
     def build(self):
 
-        super(RDFSource, self).build()
-
-
-        @self.route(match_headers('/<path:path>',
+        @self.route(match_headers('/<path:url>',
                                   Accept='application/ld+json'),
                                   methods=('GET',))
-        def ldjson(path):
-            return self.serialize_resource(format='json-ld')
+        def serialize_to_ldjson(url):
+            return (self.serialize_resource(format='json-ld'),
+                    200,
+                    {'Content-Type':'application/ld+json'})
 
-        @self.route('/<path:path>', methods=('GET',))
-        def default(path):
-            return self.serialize_resource(format='turtle')
-
+        @self.route('/<path:url>', methods=('GET',))
+        def serialize_to_turtle(url):
+            return (self.serialize_resource(format='turtle'),
+                    200,
+                    {'Content-Type':'text/turtle'})
+        
+        super(RDFSource, self).build()
 
 class NonRDFSource(Resource):
     ldp_type = LDP.NonRDFSource

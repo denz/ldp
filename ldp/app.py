@@ -1,6 +1,8 @@
 
 import logging
 
+from werkzeug.exceptions import NotFound
+
 from flask import Flask
 from flask.helpers import _endpoint_from_view_func
 from flask.globals import _request_ctx_stack
@@ -22,7 +24,7 @@ _LOGGER.setLevel(logging.ERROR)
 class LDPApp(Flask):
     url_rule_class = HeadersRule
     resource_rule_class = URIRefRule
-    default_resource_types =[ LDP.RDFSource, ]
+    default_resource_types = [LDP.RDFSource, ]
 
     def __init__(self, *args, **kwargs):
         super(LDPApp, self).__init__(*args, **kwargs)
@@ -43,14 +45,20 @@ class LDPApp(Flask):
             adapter.match = adapter.match.__get__(adapter, adapter.__class__)
         return adapter
 
-    def add_resource_rule(self, rule, varname, endpoint, view_func, context, **options):
+    def add_resource_rule(self,
+                          rule,
+                          varname,
+                          endpoint,
+                          view_func,
+                          context,
+                          **options):
         if endpoint is None:
             endpoint = _endpoint_from_view_func(view_func)
-        
+
         rule = self.resource_rule_class(rule,
                                         varname,
                                         endpoint,
-                                        context, 
+                                        context,
                                         self.resource_map,
                                         **options)
 
@@ -59,17 +67,18 @@ class LDPApp(Flask):
             old_func = self.resource_view_functions.get(endpoint)
             if old_func is not None and old_func != view_func:
                 raise AssertionError('View function mapping is overwriting an '
-                                     'existing endpoint function: %s' % endpoint)
+                                     'existing endpoint function: %s'
+                                     % endpoint)
             self.resource_view_functions[endpoint] = view_func
 
     def resource(self, varname, rule, c=aggregation, **options):
         def decorator(view_func):
 
             endpoint = options.pop('endpoint', None)
-            self.add_resource_rule(rule, varname, endpoint, view_func, c, **options)
+            self.add_resource_rule(
+                rule, varname, endpoint, view_func, c, **options)
             return view_func
         return decorator
-
 
     def dispatch_request(self):
         req = _request_ctx_stack.top.request
@@ -81,7 +90,6 @@ class LDPApp(Flask):
         # make ordinal dispatching if no resource rule mapped to url
         if resource_rules is None:
             return super(LDPApp, self).dispatch_request()
-
         for rule in resource_rules:
             args = req.view_args.copy()
             value = rule.resource(**args)
@@ -93,15 +101,20 @@ class LDPApp(Flask):
         self.raise_routing_exception(req)
 
     def resource_view(self, request, rule, resource, args):
+        if not any(rule.context[resource.identifier::]):
+            request.routing_exception = NotFound('Resource not found')
+            self.raise_routing_exception(request)
+
         if not wants_rdfsource(request):
             args[rule.varname] = resource
             return self.resource_view_functions[rule.endpoint](**args)
 
-        ldp_types = [r.identifier for r in resource[RDF.type] if r.identifier in TYPES_LIST]
+        ldp_types = [r.identifier for r in resource[
+            RDF.type] if r.identifier in TYPES_LIST]
 
         if not ldp_types:
             ldp_types = self.default_resource_types
-
+        #TODO: need to adopt application to current graph context
         app = get_resource_app(ldp_types)
 
         _resource_ctx_stack.push(resource)
