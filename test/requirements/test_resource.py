@@ -247,6 +247,7 @@ to an LDPR's HTTP Request-URI [RFC5988].
         response = self.app.get('/resource/AF')
         self.assertIn(LDP.RDFSource, response.headers['Link'])
         self.assertIn(LDP.Resource, response.headers['Link'])
+
     def test_4_2_1_5(self):
         """
         4.2.1.5 LDP servers MUST assign the default

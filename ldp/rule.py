@@ -1,16 +1,13 @@
 from flask import Flask
 import re
 from pprint import pformat
-from collections import defaultdict
-
 
 from rdflib import URIRef
 from werkzeug.routing import DEFAULT_CONVERTERS, RuleFactory
-from werkzeug.routing import (Map,
-                              parse_rule,
+from werkzeug.routing import (parse_rule,
                               parse_converter_args,
                               RequestAliasRedirect,
-                              ValidationError, Rule)
+                              ValidationError)
 from werkzeug._compat import iteritems
 from flask.helpers import locked_cached_property as cached_property
 import fnmatch
@@ -61,10 +58,13 @@ class HeadersRule(Flask.url_rule_class):
         match = super(HeadersRule, self).match(*args, **kwargs)
         if hasattr(self.rule, 'headers') and match is not None:
             if not hasattr(self, '_header_rules_compiled'):
-                self.rule.headers = dict(((k, self.compile_header_rule(v))
-                                          for k, v in self.rule.headers.items()))
+                self.rule.headers = dict(
+                                        ((k, self.compile_header_rule(v))
+                                         for k, v
+                                         in self.rule.headers.items()))
                 self._header_rules_compiled = True
-            if not set(self.headers.keys()).issuperset(set(self.rule.headers.keys())):
+            if not set(self.headers.keys())\
+                    .issuperset(set(self.rule.headers.keys())):
                 return None
 
             for header in self.rule.headers:
@@ -178,34 +178,58 @@ class ResourceMap(object):
         rules = self.iter_rules()
         return '%s(%s)' % (self.__class__.__name__, pformat(list(rules)))
 
-
     def endpoint_rules(self, endpoint, args):
+        '''
+        return rules matched with request or None
+         if no rules defined for this endpoint
+        '''
         rules = self.get(endpoint)
         if rules is None:
             return rules
 
-        return (rule for rule in self.suiteable_rules(args, *rules))
+        return self.rules_with_suiteable_args(args, *rules)
 
-    def suiteable_rules(self, arguments, *rules):
+    def rules_with_suiteable_args(self, arguments, *rules):
         arguments = set(arguments)
-        rules = (rule for rule 
-                    in rules if arguments.issuperset(rule.arguments))
+        rules = (rule for rule
+                 in rules if arguments.issuperset(rule.arguments))
 
-        rules_by_suiteability = sorted(rules,
-                        key=lambda rule: len(arguments.difference(set(rule.arguments))))
+        rules_by_suiteability\
+            = sorted(rules,
+                     key=lambda rule: len(arguments.
+                                          difference(set(rule.arguments))))
         if len(rules_by_suiteability):
-            return rules_by_suiteability
+            yield (r for r in rules_by_suiteability)
+
 
 class URIRefRule(RuleFactory):
-    def __init__(self, rule, varname, endpoint, context, map, **options):
+    def __init__(self,
+                 rule,
+                 varname,
+                 endpoint,
+                 context,
+                 map,
+                 select_resource=None,
+                 allow_to_add=None,
+                 allow_to_remove=None,
+                 **options):
         self.rule = rule
         self.varname = varname
         self.endpoint = endpoint
         self.context = context
         self.map = map
+        self.select_resource = select_resource
+        self.allow_to_add = allow_to_add
+        self.allow_to_remove = allow_to_remove
 
     def resource(self, **args):
         return self.context.resource(URIRef(self.template.format(**args)))
+
+    def quads(self, resource):
+        quads = self.context.quads((resource.identifier, None, None))
+        if self.select_resource is not None:
+            return (quad for quad in self.select_resource(self.context, quads))
+        return quads
 
     def get_rules(self, map):
         yield self
@@ -222,7 +246,9 @@ class URIRefRule(RuleFactory):
                 template += part
             else:
                 name, args, converter = part
-                converter = self.map.converters.get(part[2], self.map.converters['default'])
+                converter = self\
+                    .map.converters.get(part[2],
+                                        self.map.converters['default'])
                 conv_regex = converter.regex
                 exclusion = None
                 exclusion = re.match(r'\[(.*\/.*)\]', conv_regex)
@@ -230,11 +256,12 @@ class URIRefRule(RuleFactory):
                     exclusion = exclusion.groups()[0]
                     if not '<' in exclusion:
                         exc_pos = conv_regex.find(exclusion) + len(exclusion)
-                        conv_regex = conv_regex[:exc_pos] + '<' + conv_regex[exc_pos:]
-                varname = 'id%s'%i
+                        conv_regex = conv_regex[:exc_pos]\
+                            + '<' + conv_regex[exc_pos:]
+                varname = 'id%s' % i
                 argmap[varname] = name
-                template += '{%s}'%name
-                rule_re += _rule_template%(varname, conv_regex)
+                template += '{%s}' % name
+                rule_re += _rule_template % (varname, conv_regex)
                 i += 1
 
         return (rule_re, template, argmap)
@@ -245,7 +272,8 @@ class URIRefRule(RuleFactory):
         .. versionadded:: 0.9
         """
         if not converter_name in self.map.converters:
-            raise LookupError('the converter %r does not exist' % converter_name)
+            raise LookupError('the converter %r does not exist' %
+                              converter_name)
         return self.map.converters[converter_name](self.map, *args, **kwargs)
 
     @property

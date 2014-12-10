@@ -5,23 +5,28 @@ from functools import wraps
 from threading import Lock
 from uuid import uuid5 as uuid
 from zlib import adler32
+from pprint import pprint
 
 from werkzeug.routing import Map
-from werkzeug.exceptions import Forbidden, Conflict, PreconditionFailed
+from werkzeug.exceptions import PreconditionFailed
 from werkzeug.datastructures import HeaderSet
 
 from flask import (Blueprint, Flask, request, current_app, g)
 from flask.ext.negotiation import provides
 from flask.templating import _default_template_ctx_processor
 
-from rdflib import ConjunctiveGraph
+from rdflib import ConjunctiveGraph, Graph
 from rdflib.namespace import RDF
+from rdflib.resource import Resource as RDFResource
 
 from treelib import Tree, Node
 
-
 from ldp import NS as LDP, resource as r, dataset as ds
+from ldp.globals import resources, _dataset_ctx_stack
 from ldp.rule import HeadersRule, match_headers
+from ldp.helpers import wants_rdfsource
+from ldp.dataset import DatasetGraphAggregation
+
 
 def ldp_types_hierarchy():
     h = Tree()
@@ -89,13 +94,83 @@ def get_resource_app(ldp_types):
 class LDPResponse(Flask.response_class):
     default_mimetype = 'application/ld+json; charset=utf-8'
 
+
 class Resource(Flask):
     ldp_type = LDP.Resource
     response_class = LDPResponse
-
     url_rule_class = HeadersRule
-
     patch_media_types = ('application/ld+json', 'text/turtle')
+    rdf_resource_class = RDFResource
+    rdf_resource_graph_class = Graph
+    default_resource_types = [LDP.RDFSource, ]
+
+    @classmethod
+    def resolve_resource_app(cls, map, request):
+        '''
+        match uriref for url
+        update args if LDPResource processing is not required and return
+        create rdflib.Resource for matched uriref
+        move resource triples from dataset to standalone graph
+            if that graph not created in ds.g['resources']
+        add that graph to ds.g['resources']
+        create rdflib.Resource for created graph context or
+            take existing from ds.g['resources']
+        return None if no resource available
+        '''
+
+        resource_rules = map.endpoint_rules(request.endpoint,
+                                            request.view_args)
+        # make ordinal dispatching if no resource rule mapped to url
+        if resource_rules is None:
+            return None
+
+        _wants_rdfsource = wants_rdfsource(request)
+        args = request.view_args.copy()
+        resource = None
+        for rule in chain(*resource_rules):
+            resource = rule.resource(**request.view_args)
+            if resource is not None:
+                if not _wants_rdfsource:
+                    request.view_args[rule.varname] = resource
+                    return
+                else:
+                    args[rule.varname] = resource
+                    break
+
+        if resource is None:
+            req.routing_exception = NotFound()
+            return
+
+        if resource.identifier not in (n.identifier for n
+                                       in resources.contexts()):
+            g = resources.graph(resource.identifier)
+            moved_triples = False
+            for s, p, o, c in rule.quads(resource):
+                g.add((s, p, o))
+                source = ds.graph(c)
+                source.remove((s, p, o))
+                moved_triples = True
+            if not moved_triples:
+                request.routing_exception = NotFound('Resource not found')
+                self.raise_routing_exception(request)
+            resource = g.resource(resource.identifier)
+        else:
+            resource = resources.graph(resource.identifier)\
+                                .resource(resource.identifier)
+        if rule.allow_to_add:
+            resource.allow_to_add = rule.allow_to_add.\
+                __get__(resource, resource.__class__)
+
+        if rule.allow_to_remove:
+            resource.allow_to_remove = rule.allow_to_remove.\
+                __get__(resource, resource.__class__)
+
+        ldp_types = [r.identifier for r in resource[
+            RDF.type] if r.identifier in TYPES_LIST]
+
+        if not ldp_types:
+            ldp_types = cls.default_resource_types
+        return resource, get_resource_app(ldp_types)
 
     def create_url_adapter(self, request):
         adapter = super(Resource, self).create_url_adapter(request)
@@ -111,14 +186,15 @@ class Resource(Flask):
             adapter.match = adapter.match.__get__(adapter, adapter.__class__)
         return adapter
 
-
     def make_default_options_response(self, *args, **kwargs):
         '''
         Add `Accept-Patch` headers to default options
         '''
-        response = super(Resource, self).make_default_options_response(*args, **kwargs)
+        response = super(Resource,
+                         self).make_default_options_response(*args, **kwargs)
         if 'PATCH' in response.allow:
-            response.headers['Accept-Patch'] = HeaderSet(self.patch_media_types)
+            response.headers['Accept-Patch'] =\
+                HeaderSet(self.patch_media_types)
         return response
 
     def get_etag(self, resource):
@@ -134,7 +210,9 @@ class Resource(Flask):
 
         @self.after_request
         def set_ldp_link_types(response):
-            response.headers['Link'] = HeaderSet('%s;rel=type'%t for t in implied_types(self.ldp_type))
+            response.headers['Link'] = \
+                HeaderSet('%s;rel=type' % t for t
+                          in implied_types(self.ldp_type))
             return response
 
         @self.after_request
@@ -143,55 +221,42 @@ class Resource(Flask):
             return response
 
         @self.route(match_headers('/<path:url>',
-                               **{'Content-Type':'application/ld+json'}),
-                                 methods=('PUT',))
+                                  **{'Content-Type': 'application/ld+json'}),
+                    methods=('PUT',))
         @self.require_authorization
         def replace_from_ldjson(url):
             self.replace_resource(r, data=request.data,
-                                 format='json-ld',
-                                 publicID=r.identifier)
+                                  format='json-ld')
             return self.make_response(('', 204, ()))
 
         @self.route(match_headers('/<path:url>',
-                               **{'Content-Type':'text/turtle'}),
-                                 methods=('PUT',))
+                                  **{'Content-Type': 'text/turtle'}),
+                    methods=('PUT',))
         @self.require_authorization
         def replace_from_turtle(url):
-            self.replace_resource(r,    data=request.data,
-                                        format='turtle',
-                                        publicID=r.identifier)
+            self.replace_resource(r, data=request.data,
+                                  format='turtle',)
             return self.make_response(('', 204, ()))
 
-
     def replace_resource(self, resource, **kwargs):
-        g = ConjunctiveGraph()
-        g.parse(**kwargs)
+        source = ConjunctiveGraph()
+        source.parse(**kwargs)
 
         removed = set()
         added = set()
+        for s, p, o in source[::]:
+            if resource.allow_to_add(current_app, s, p, o):
+                added.add((s, p, o))
 
-        for s,p,o,c in ds.quads((resource.identifier, None, None, None)):
-            if not s == resource.identifier:
-                raise Conflict('Cant remove from third party resource %r'%s)
+        for s, p, o in resource.graph.triples((None, None, None)):
+            if resource.allow_to_remove(current_app, s, p, o):
+                removed.add((s, p, o))
 
-            if self.allowed_to_remove(ds, s, p, o, c):
-                removed.add((s, p, o, c))
-            else:
-                raise Forbidden('You dont have permission to remove %r of %r'%(p,s))
+        for triple in removed.difference(added):
+            resource.graph.remove(triple)
 
-        for s,p,o in g[::]:
-            if not s == resource.identifier:
-                raise Conflict('Cant add to third party resource %r'%s)
-            if self.allowed_to_add(ds, s, p, o, c):
-                added.add((s, p, o, c))
-            else:
-                raise Forbidden('You dont have permission to add %r to %r'%((p,o),s))
-
-        for quad in removed.difference(added):
-            ds.remove(quad)
-
-        for quad in added.difference(removed):
-            ds.add(quad)
+        for triple in added.difference(removed):
+            resource.graph.add(triple)
 
         return self.on_resource_modified(resource)
 
@@ -202,12 +267,6 @@ class Resource(Flask):
 
         return authorizator
 
-    def allowed_to_remove(self, ds, s, p, o, c):
-        return True
-
-    def allowed_to_add(self, ds, s, p, o, c):
-        return True
-
     def on_resource_modified(self, resource):
         return resource
 
@@ -215,29 +274,24 @@ class Resource(Flask):
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
 
-    def serialize_resource(self, *args, **kwargs):
-        g = ConjunctiveGraph()
-        for (p, o) in r.graph[r.identifier::]:
-            g.set((r.identifier, p, o))
-        return g.serialize(*args, **kwargs)
-
     def build(self):
 
         @self.route(match_headers('/<path:url>',
                                   Accept='application/ld+json'),
-                                  methods=('GET',))
+                    methods=('GET',))
         def serialize_to_ldjson(url):
-            return (self.serialize_resource(format='json-ld'),
+            return (r.graph.serialize(format='json-ld'),
                     200,
-                    {'Content-Type':'application/ld+json'})
+                    {'Content-Type': 'application/ld+json'})
 
         @self.route('/<path:url>', methods=('GET',))
         def serialize_to_turtle(url):
-            return (self.serialize_resource(format='turtle'),
+            return (r.graph.serialize(format='turtle'),
                     200,
-                    {'Content-Type':'text/turtle'})
-        
+                    {'Content-Type': 'text/turtle'})
+
         super(RDFSource, self).build()
+
 
 class NonRDFSource(Resource):
     ldp_type = LDP.NonRDFSource

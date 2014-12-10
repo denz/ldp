@@ -1,18 +1,38 @@
 from contextlib import contextmanager
-from rdflib.graph import ReadOnlyGraphAggregate, Dataset, Graph, ConjunctiveGraph
+from itertools import chain
+from rdflib.graph import (
+    ReadOnlyGraphAggregate, Dataset, Graph, ConjunctiveGraph)
+
+from rdflib.paths import Path
+
 from .globals import _dataset_ctx_stack
 
 
 class DatasetGraphAggregation(ReadOnlyGraphAggregate):
-    def __init__(self, valuesview, store='default'):
+
+    def __init__(self, graphs, store='default'):
         if store is not None:
             super(ReadOnlyGraphAggregate, self).__init__(store)
             Graph.__init__(self, store)
             self.__namespace_manager = None
 
-        self.graphs = valuesview
+        self.graphs = graphs
+
+    def triples(self, xxx_todo_changeme8):
+        (s, p, o) = xxx_todo_changeme8
+        graphs = chain(*(g.contexts() if isinstance(g, Dataset)
+                         else (g,) for g in self.graphs))
+        for graph in graphs:
+            if isinstance(p, Path):
+                for s, o in p.eval(self, s, o):
+                    yield s, p, o
+            else:
+                for s1, p1, o1 in graph.triples((s, p, o)):
+                    yield (s1, p1, o1)
+
 
 class GraphGetter(object):
+
     def __init__(self, ds=None):
         self.ds = ds
         self.map = {}
@@ -36,8 +56,10 @@ class GraphGetter(object):
         self.map[name] = self.ds.graph(identifier)
         return self.map[name]
 
+
 def _push_dataset_ctx(**graph_descriptors):
     ds = NamedContextDataset()
+    ds.g['resources'] = Dataset()
     for name, descriptor in graph_descriptors.items():
         if set(descriptor).intersection(set(('data', 'file', 'source'))):
             ds.g[name] = ds.parse(**descriptor)
@@ -46,17 +68,20 @@ def _push_dataset_ctx(**graph_descriptors):
     _dataset_ctx_stack.push(ds)
     return ds
 
+
 def _pop_dataset_ctx():
     _dataset_ctx_stack.pop()
 
+
 class NamedContextDataset(Dataset):
     g = GraphGetter()
+
 
 @contextmanager
 def context(**graph_descriptors):
 
     try:
-        
-        yield _push_dataset_ctx(**graph_descriptors)    
+
+        yield _push_dataset_ctx(**graph_descriptors)
     finally:
         _pop_dataset_ctx()
