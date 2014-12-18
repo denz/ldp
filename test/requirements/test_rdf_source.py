@@ -256,6 +256,8 @@ respond with a text/turtle
 representation of the requested LDP-RS whenever 
 the Accept request header is absent [turtle].  
         """
+
+        """this is violated since html application lies on top"""
         pass
 
     def test_4_3_2_3(self):

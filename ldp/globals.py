@@ -17,7 +17,8 @@ class GlobalsModule(types.ModuleType):
     __loader__ = __loader__
     __name__ = __name__
     __path__ = __file__
-    __initializing__ = __initializing__
+    if '__initializing__' in locals():
+        __initializing__ = __initializing__
     _dataset_ctx_stack = LocalStack()
     _resource_ctx_stack = LocalStack()
 

@@ -6,16 +6,15 @@ from threading import Lock
 from uuid import uuid5 as uuid
 from zlib import adler32
 from pprint import pprint
+from copy import copy
 
 from werkzeug.routing import Map
 from werkzeug.exceptions import PreconditionFailed
 from werkzeug.datastructures import HeaderSet
 
 from flask import (Blueprint, Flask, request, current_app, g)
-from flask.ext.negotiation import provides
-from flask.templating import _default_template_ctx_processor
 
-from rdflib import ConjunctiveGraph, Graph
+from rdflib import Graph
 from rdflib.namespace import RDF
 from rdflib.resource import Resource as RDFResource
 
@@ -24,7 +23,7 @@ from treelib import Tree, Node
 from ldp import NS as LDP, resource as r, dataset as ds
 from ldp.globals import resources, _dataset_ctx_stack
 from ldp.rule import HeadersRule, match_headers
-from ldp.helpers import wants_rdfsource
+from ldp.helpers import wants_rdfsource, Pipeline
 from ldp.dataset import DatasetGraphAggregation
 
 
@@ -95,82 +94,26 @@ class LDPResponse(Flask.response_class):
     default_mimetype = 'application/ld+json; charset=utf-8'
 
 
+def test_removable(triple, resource, request):
+    # print('remove', triple)
+    yield triple
+
+
+def test_addable(triple, resource, request):
+    # print('add', triple)
+    yield triple
+
+
 class Resource(Flask):
     ldp_type = LDP.Resource
     response_class = LDPResponse
     url_rule_class = HeadersRule
     patch_media_types = ('application/ld+json', 'text/turtle')
-    rdf_resource_class = RDFResource
-    rdf_resource_graph_class = Graph
-    default_resource_types = [LDP.RDFSource, ]
 
-    @classmethod
-    def resolve_resource_app(cls, map, request):
-        '''
-        match uriref for url
-        update args if LDPResource processing is not required and return
-        create rdflib.Resource for matched uriref
-        move resource triples from dataset to standalone graph
-            if that graph not created in ds.g['resources']
-        add that graph to ds.g['resources']
-        create rdflib.Resource for created graph context or
-            take existing from ds.g['resources']
-        return None if no resource available
-        '''
-
-        resource_rules = map.endpoint_rules(request.endpoint,
-                                            request.view_args)
-        # make ordinal dispatching if no resource rule mapped to url
-        if resource_rules is None:
-            return None
-
-        _wants_rdfsource = wants_rdfsource(request)
-        args = request.view_args.copy()
-        resource = None
-        for rule in chain(*resource_rules):
-            resource = rule.resource(**request.view_args)
-            if resource is not None:
-                if not _wants_rdfsource:
-                    request.view_args[rule.varname] = resource
-                    return
-                else:
-                    args[rule.varname] = resource
-                    break
-
-        if resource is None:
-            req.routing_exception = NotFound()
-            return
-
-        if resource.identifier not in (n.identifier for n
-                                       in resources.contexts()):
-            g = resources.graph(resource.identifier)
-            moved_triples = False
-            for s, p, o, c in rule.quads(resource):
-                g.add((s, p, o))
-                source = ds.graph(c)
-                source.remove((s, p, o))
-                moved_triples = True
-            if not moved_triples:
-                request.routing_exception = NotFound('Resource not found')
-                self.raise_routing_exception(request)
-            resource = g.resource(resource.identifier)
-        else:
-            resource = resources.graph(resource.identifier)\
-                                .resource(resource.identifier)
-        if rule.allow_to_add:
-            resource.allow_to_add = rule.allow_to_add.\
-                __get__(resource, resource.__class__)
-
-        if rule.allow_to_remove:
-            resource.allow_to_remove = rule.allow_to_remove.\
-                __get__(resource, resource.__class__)
-
-        ldp_types = [r.identifier for r in resource[
-            RDF.type] if r.identifier in TYPES_LIST]
-
-        if not ldp_types:
-            ldp_types = cls.default_resource_types
-        return resource, get_resource_app(ldp_types)
+    pipelines = {
+        'removeable': [],
+        'addable': [],
+    }
 
     def create_url_adapter(self, request):
         adapter = super(Resource, self).create_url_adapter(request)
@@ -223,7 +166,6 @@ class Resource(Flask):
         @self.route(match_headers('/<path:url>',
                                   **{'Content-Type': 'application/ld+json'}),
                     methods=('PUT',))
-        @self.require_authorization
         def replace_from_ldjson(url):
             self.replace_resource(r, data=request.data,
                                   format='json-ld')
@@ -232,44 +174,30 @@ class Resource(Flask):
         @self.route(match_headers('/<path:url>',
                                   **{'Content-Type': 'text/turtle'}),
                     methods=('PUT',))
-        @self.require_authorization
         def replace_from_turtle(url):
             self.replace_resource(r, data=request.data,
                                   format='turtle',)
             return self.make_response(('', 204, ()))
 
+    def get_pipeline(self, name):
+        members = copy(self.pipelines.get(name, []))
+        members.extend(r.adapter.extra_pipelines.get(name, []))
+        return Pipeline(members)
+
     def replace_resource(self, resource, **kwargs):
-        source = ConjunctiveGraph()
+        source = Graph()
         source.parse(**kwargs)
 
-        removed = set()
-        added = set()
-        for s, p, o in source[::]:
-            if resource.allow_to_add(current_app, s, p, o):
-                added.add((s, p, o))
+        added = set(source[::])
+        removed = set(resource.graph[::])
 
-        for s, p, o in resource.graph.triples((None, None, None)):
-            if resource.allow_to_remove(current_app, s, p, o):
-                removed.add((s, p, o))
-
-        for triple in removed.difference(added):
+        removeable = self.get_pipeline('removeable')
+        addable = self.get_pipeline('addable')
+        for triple in removeable(removed.difference(added), r, request):
             resource.graph.remove(triple)
 
-        for triple in added.difference(removed):
+        for triple in addable(added.difference(removed), r, request):
             resource.graph.add(triple)
-
-        return self.on_resource_modified(resource)
-
-    def require_authorization(self, view):
-        @wraps(view)
-        def authorizator(*args, **kwargs):
-            return view(*args, **kwargs)
-
-        return authorizator
-
-    def on_resource_modified(self, resource):
-        return resource
-
 
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource

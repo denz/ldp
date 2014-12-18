@@ -1,6 +1,8 @@
 
 import logging
 
+from werkzeug.routing import NotFound
+
 from flask import Flask
 from flask.helpers import _endpoint_from_view_func
 from flask.globals import _request_ctx_stack
@@ -8,18 +10,21 @@ from flask.globals import _request_ctx_stack
 from rdflib.namespace import *
 from rdflib.term import _LOGGER
 
-from .rule import HeadersRule, URIRefRule, ResourceMap
 from . import aggregation
-from ldp.resource import Resource
-from ldp.globals import _resource_ctx_stack
+from .rule import HeadersRule
+from .binding import URIRefBinding, ResourceMap, ResourceAppAdapter
+
+from .resource import Resource, get_resource_app
+from .globals import _resource_ctx_stack
 
 _LOGGER.setLevel(logging.ERROR)
 
 
 class LDPApp(Flask):
     url_rule_class = HeadersRule
-    resource_rule_class = URIRefRule
+    resource_bind_class = URIRefBinding
     resource_app_class = Resource
+    resource_app_adapter = ResourceAppAdapter
 
     def __init__(self, *args, **kwargs):
         super(LDPApp, self).__init__(*args, **kwargs)
@@ -50,7 +55,7 @@ class LDPApp(Flask):
         if endpoint is None:
             endpoint = _endpoint_from_view_func(view_func)
 
-        rule = self.resource_rule_class(rule,
+        rule = self.resource_bind_class(rule,
                                         varname,
                                         endpoint,
                                         context,
@@ -77,16 +82,32 @@ class LDPApp(Flask):
 
     def dispatch_request(self):
         req = _request_ctx_stack.top.request
+
         if req.routing_exception is not None:
             self.raise_routing_exception(req)
 
-        adapter = self.resource_app_class.\
-            resolve_resource_app(self.resource_map, req)
-        if adapter is None:
+        adapter = self.resource_app_adapter(self.resource_map, req)
+
+        if adapter.bound_with is None:
             return super(LDPApp, self).dispatch_request()
 
-        resource, resource_app = adapter
-        _resource_ctx_stack.push(resource)
+        req.view_args = adapter.args
+
+        if not adapter.wants_rdfsource:
+            return super(LDPApp, self).dispatch_request()
+
+        if adapter.resource is None:
+            raise NotFound('Resource %r not found' %
+                           adapter.resource.identifier)
+
+        _resource_ctx_stack.push(adapter.resource)
+        resource_app = get_resource_app(adapter.ldp_types)
+
+        pipelines = self.config.get('PIPELINES', {})
+        pipelines.update(adapter.binding.options.get('pipelines', {}))
+
+        adapter.extra_pipelines = pipelines
+
         with resource_app.request_context(req.environ):
             return resource_app.full_dispatch_request()
         _resource_ctx_stack.pop()
@@ -96,14 +117,3 @@ class LDPApp(Flask):
         # if view is bound to resource rule but arguments list
         # parsed by url_adapter is not suitable = raise 404
         self.raise_routing_exception(req)
-
-    def resource_view(self, request, rule, resource, args):
-        pass
-
-    def create_resource_adapter(self, map):
-        ''' resolves rule
-            obtains resource for matched rule
-            creates standalone graph resource
-            if no cached version available
-        '''
-        pass

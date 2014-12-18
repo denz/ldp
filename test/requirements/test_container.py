@@ -283,7 +283,6 @@ but there is no requirement to materialize this triple in the LDPC representatio
         The notes on the corresponding LDPR constraint apply
         equally to LDPCs.
 
-
 Valid container type URIs for rel='type' defined by this document are:
 
 http://www.w3.org/ns/ldp#BasicContainer - for LDP Basic Containers

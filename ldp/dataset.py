@@ -59,12 +59,13 @@ class GraphGetter(object):
 
 def _push_dataset_ctx(**graph_descriptors):
     ds = NamedContextDataset()
-    ds.g['resources'] = Dataset()
+    ds.g['pool'] = Dataset()
     for name, descriptor in graph_descriptors.items():
         if set(descriptor).intersection(set(('data', 'file', 'source'))):
             ds.g[name] = ds.parse(**descriptor)
         else:
             ds.g[name] = ConjunctiveGraph()
+
     _dataset_ctx_stack.push(ds)
     return ds
 

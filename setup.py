@@ -62,13 +62,13 @@ if __name__ == '__main__':
         include_package_data=True,
         zip_safe=False,
         test_suite='test',
-        install_requires=['flask', 'networkx'],
-        tests_require=[],
+        install_requires=['flask', 'rdflib', 'treelib', 'cached-property'],
+        tests_require=['nosetests',],
         entry_points={
         },
         classifiers=[
             'Development Status :: 2 - Pre-Alpha',
             'Programming Language :: Python',
-            'Programming Language :: Python :: 3.3',
+            'Programming Language :: Python :: 3',
         ],
     )

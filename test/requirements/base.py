@@ -55,6 +55,15 @@ def continent_resource(continent):
     return continent.value(GN.population)
 
 
+@app.route('/rdfsource/<continent>', methods=('GET', 'PUT'))
+@app.resource('continent', CONTINENTS['<continent>#<continent>'],
+              select_resource=selector,
+              allow_to_add=allow_to_add,
+              allow_to_remove=allow_to_remove)
+def continent_rdfsource(continent):
+    return continent.value(GN.population)
+
+
 class CONFIG:
     DEBUG = True
 
