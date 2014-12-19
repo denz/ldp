@@ -120,13 +120,14 @@ class Resource(Flask):
         if request is not None:
             for rule in adapter.map._rules:
                 rule.headers = request.headers
+            _match = adapter.match
 
             def match(self, *args, **kwargs):
-                rv = adapter.match(*args, **kwargs)
+                rv = _match(*args, **kwargs)
                 for rule in adapter.map._rules:
-                    del rules.__dict__['headers']
+                    del rule.__dict__['headers']
                 return rv
-            adapter.match = adapter.match.__get__(adapter, adapter.__class__)
+            adapter.match = match.__get__(adapter, adapter.__class__)
         return adapter
 
     def make_default_options_response(self, *args, **kwargs):
@@ -160,11 +161,28 @@ class Resource(Flask):
 
         @self.after_request
         def set_etag(response):
-            response.headers['ETag'] = self.get_etag(r)
+            if response.status_code < 400:
+                response.headers['ETag'] = self.get_etag(r)
             return response
 
+        def head(url):
+            return ''
+
+        self.route(match_headers('/<path:url>',
+                                 **{'Accept': 'application/ld+json'}),
+                   methods=('HEAD',))(head)
+
+        self.route(match_headers('/<path:url>',
+                                 **{'Accept': 'text/turtle'}),
+                   methods=('HEAD',))(head)
+
+        def replace_from_ldjson(url):
+            self.replace_resource(r, data=request.data,
+                                  format='json-ld')
+            return self.make_response(('', 204, ()))
+
         @self.route(match_headers('/<path:url>',
-                                  **{'Content-Type': 'application/ld+json'}),
+                                  **{'Accept': 'application/ld+json'}),
                     methods=('PUT',))
         def replace_from_ldjson(url):
             self.replace_resource(r, data=request.data,
@@ -172,7 +190,7 @@ class Resource(Flask):
             return self.make_response(('', 204, ()))
 
         @self.route(match_headers('/<path:url>',
-                                  **{'Content-Type': 'text/turtle'}),
+                                  **{'Accept': 'text/turtle'}),
                     methods=('PUT',))
         def replace_from_turtle(url):
             self.replace_resource(r, data=request.data,
@@ -198,6 +216,10 @@ class Resource(Flask):
 
         for triple in addable(added.difference(removed), r, request):
             resource.graph.add(triple)
+
+        for ns in source.namespaces():
+            resource.graph.bind(*ns)
+
 
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource

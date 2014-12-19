@@ -23,13 +23,16 @@ class HeadersRule(Flask.url_rule_class):
 
     def match(self, *args, **kwargs):
         match = super(HeadersRule, self).match(*args, **kwargs)
-        if hasattr(self.rule, 'headers') and match is not None:
+        if hasattr(self, 'headers')\
+           and hasattr(self.rule, 'headers')\
+           and match is not None:
             if not hasattr(self, '_header_rules_compiled'):
                 self.rule.headers = dict(
                                         ((k, self.compile_header_rule(v))
                                          for k, v
                                          in self.rule.headers.items()))
                 self._header_rules_compiled = True
+
             if not set(self.headers.keys())\
                     .issuperset(set(self.rule.headers.keys())):
                 return None
@@ -53,7 +56,6 @@ class HeadersRule(Flask.url_rule_class):
                 if self.alias and self.map.redirect_defaults:
                     raise RequestAliasRedirect(result)
                 match.update(result)
-
         return match
 
     def compile_header_rule(self, rule):

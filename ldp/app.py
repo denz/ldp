@@ -36,13 +36,13 @@ class LDPApp(Flask):
         if request is not None:
             for rule in adapter.map._rules:
                 rule.headers = request.headers
-
+            _match = adapter.match
             def match(self, *args, **kwargs):
-                rv = adapter.match(*args, **kwargs)
+                rv = _match(*args, **kwargs)
                 for rule in adapter.map._rules:
-                    del rules.__dict__['headers']
+                    del rule.__dict__['headers']
                 return rv
-            adapter.match = adapter.match.__get__(adapter, adapter.__class__)
+            adapter.match = match.__get__(adapter, adapter.__class__)
         return adapter
 
     def add_resource_rule(self,
@@ -84,8 +84,8 @@ class LDPApp(Flask):
         req = _request_ctx_stack.top.request
 
         if req.routing_exception is not None:
-            self.raise_routing_exception(req)
 
+            self.raise_routing_exception(req)
         adapter = self.resource_app_adapter(self.resource_map, req)
 
         if adapter.bound_with is None:
@@ -95,14 +95,12 @@ class LDPApp(Flask):
 
         if not adapter.wants_rdfsource:
             return super(LDPApp, self).dispatch_request()
-
         if adapter.resource is None:
             raise NotFound('Resource %r not found' %
                            adapter.resource.identifier)
 
         _resource_ctx_stack.push(adapter.resource)
         resource_app = get_resource_app(adapter.ldp_types)
-
         pipelines = self.config.get('PIPELINES', {})
         pipelines.update(adapter.binding.options.get('pipelines', {}))
 
