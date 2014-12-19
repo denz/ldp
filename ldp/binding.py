@@ -282,11 +282,10 @@ class ResourceAppAdapter(object):
         if self.uriref in self.pool:
             resource = self.rdf_resource_class(
                 self.resource_pool.graph(self.uriref), self.uriref)
-
-        g = self.move_to_pool(self.binding.context)
-
-        if g is not None:
-            resource = self.rdf_resource_class(g, self.uriref)
+        else:
+            g = self.move_to_pool(self.binding.context)
+            if g is not None:
+                resource = self.rdf_resource_class(g, self.uriref)
 
         if resource:
             resource.adapter = self
