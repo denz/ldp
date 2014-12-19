@@ -113,24 +113,19 @@ class ResourceMap(object):
 
 
 class URIRefBinding(RuleFactory):
+
     def __init__(self,
                  rule,
                  varname,
                  endpoint,
                  context,
                  map,
-                 select_resource=None,
-                 allow_to_add=None,
-                 allow_to_remove=None,
                  **options):
         self.rule = rule
         self.varname = varname
         self.endpoint = endpoint
         self.context = context
         self.map = map
-        self.select_resource = select_resource
-        self.allow_to_add = allow_to_add
-        self.allow_to_remove = allow_to_remove
         self.options = options
 
     def uriref(self, **args):
@@ -197,6 +192,10 @@ class URIRefBinding(RuleFactory):
     def arguments(self):
         return set(self.argmap.values())
 
+    @cached_property
+    def ldp_types(self):
+        return self.options.get('types', [])
+
 
 def remove_from_context(quad, context, is_quad=True):
     if is_quad:
@@ -215,8 +214,8 @@ class ResourceAppAdapter(object):
     resource_pool = pool
     rdf_resource_class = RDFResource
     resource_app_class = LDPResourceApp
-    resource_quad_selectors = [remove_from_context, ]
-    default_resource_types = [LDP.RDFSource]
+    resource_quad_selectors = [remove_from_context]
+    default_ldp_types = [LDP.Resource]
 
     def __init__(self, map, request):
         self.map = map
@@ -307,10 +306,9 @@ class ResourceAppAdapter(object):
 
     @cached_property
     def ldp_types(self):
-        ldp_types = [r.identifier for r in self.resource[
-            RDF.type] if r.identifier in TYPES_LIST]
-
-        if not ldp_types:
-            ldp_types = self.default_resource_types
-
-        return ldp_types
+        ldp_types = [o for
+                     (s, p, o) in ds[self.resource.identifier:RDF.type:]
+                     if o in TYPES_LIST]
+        ldp_types.extend(self.binding.ldp_types)
+        ldp_types.extend(self.default_ldp_types)
+        return list(set(ldp_types))
