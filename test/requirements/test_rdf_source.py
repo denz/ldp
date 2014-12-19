@@ -203,8 +203,7 @@ PATCH instead of HTTP PUT for update avoids this burden for clients
 
     def test_4_3_1_13(self):
         """
-        4.3.1.13 
-LDP clients MUST 
+        4.3.1.13 LDP clients MUST 
 be capable of processing responses formed by a LDP server that ignores hints,
 including LDP-defined hints.
         """

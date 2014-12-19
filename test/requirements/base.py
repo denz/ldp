@@ -6,7 +6,7 @@ from rdflib.namespace import *
 
 from werkzeug.exceptions import Conflict
 
-from ldp import LDPApp
+from ldp import LDPApp, NS as LDP
 from ldp.dataset import _push_dataset_ctx, _pop_dataset_ctx
 
 
@@ -19,48 +19,23 @@ UNKNOWN = URIRef('xxx')
 
 app = LDPApp(__name__)
 
-
-def selector(context, quads):
-    for quad in quads:
-        yield quad
-
-
-def allow_to_remove(resource, app, s, p, o):
-    '''
-    If need to omit removal silently - return `False`
-    else - raise Forbidden() or Conflict()
-    see 4.2.4.3 and 4.2.4.4 of ldp standart
-    '''
-
-    return True
-
-
-def allow_to_add(resource, app, s, p, o):
-    '''
-    If need to omit addition silently - return `False`
-    else - raise Forbidden() or Conflict()
-    see 4.2.4.3 and 4.2.4.4 of ldp standart
-    '''
-    if not resource.identifier == s:
-        raise Conflict('Cant add to third party resource %r'%s)
-    return True
-
-
 @app.route('/resource/<continent>', methods=('GET', 'PUT'))
-@app.resource('continent', CONTINENTS['<continent>#<continent>'],
-              select_resource=selector,
-              allow_to_add=allow_to_add,
-              allow_to_remove=allow_to_remove)
+@app.resource('continent', CONTINENTS['<continent>#<continent>'],)
 def continent_resource(continent):
     return continent.value(GN.population)
 
 
-@app.route('/rdfsource/<continent>', methods=('GET', 'PUT'))
+@app.route('/rdfsource/<continent>', methods=('GET',))
 @app.resource('continent', CONTINENTS['<continent>#<continent>'],
-              select_resource=selector,
-              allow_to_add=allow_to_add,
-              allow_to_remove=allow_to_remove)
+              types=[LDP.RDFSource])
 def continent_rdfsource(continent):
+    return continent.value(GN.population)
+
+
+@app.route('/container/<continent>')
+@app.resource('continent', CONTINENTS['<continent>#<continent>'],
+              types=[LDP.Container])
+def continent_container(continent):
     return continent.value(GN.population)
 
 
