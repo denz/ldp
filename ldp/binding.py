@@ -260,8 +260,8 @@ class ResourceAppAdapter(object):
 
     def move_to_pool(self, context):
         g = self.resource_pool.graph(self.uriref)
-        for prefix, ns in context.namespaces():
-            g.bind(prefix, ns)
+        for ns in ds.namespaces():
+            g.bind(*ns)
 
         if isinstance(context, DatasetGraphAggregation):
             quads = ds.quads((self.uriref, None, None, None))
@@ -269,6 +269,7 @@ class ResourceAppAdapter(object):
         else:
             quads = ((s, p, o, context.identifier)
                      for s, p, o in context.triples((self.uriref, None, None)))
+
         for quad in self.select_quads(quads, context):
             g.add(quad[:3])
 
