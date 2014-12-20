@@ -18,21 +18,20 @@ class match_headers(str):
         ret.headers = headers
         return ret
 
-
 class HeadersRule(Flask.url_rule_class):
 
     def match(self, *args, **kwargs):
         match = super(HeadersRule, self).match(*args, **kwargs)
-        if hasattr(self, 'headers')\
-           and hasattr(self.rule, 'headers')\
-           and match is not None:
-            if not hasattr(self, '_header_rules_compiled'):
-                self.rule.headers = dict(
-                                        ((k, self.compile_header_rule(v))
-                                         for k, v
-                                         in self.rule.headers.items()))
-                self._header_rules_compiled = True
+        if hasattr(self.rule, 'headers')\
+           and not hasattr(self, '_header_rules_compiled'):
+            self.rule.headers = dict(
+                                    ((k, self.compile_header_rule(v))
+                                     for k, v
+                                     in self.rule.headers.items()))
+            self._header_rules_compiled = True
 
+        if hasattr(self, 'headers')\
+           and hasattr(self.rule, 'headers') and match is not None:
             if not set(self.headers.keys())\
                     .issuperset(set(self.rule.headers.keys())):
                 return None
@@ -103,3 +102,22 @@ class HeadersRule(Flask.url_rule_class):
             u''.join(regex_parts)
         )
         return re.compile(regex, re.UNICODE)
+
+
+def header_rule_mixin(cls):
+    class HeaderRuleMixin(object):
+        def create_url_adapter(self, request):
+            adapter = cls.create_url_adapter.__get__(self, cls)(request)
+            if request is not None:
+                for rule in adapter.map._rules:
+                    rule.headers = request.headers
+                _match = adapter.match
+
+                def match(self, *args, **kwargs):
+                    rv = _match(*args, **kwargs)
+                    for rule in adapter.map._rules:
+                        del rule.__dict__['headers']
+                    return rv
+                adapter.match = match.__get__(adapter, adapter.__class__)
+            return adapter
+    return HeaderRuleMixin

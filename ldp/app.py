@@ -10,17 +10,16 @@ from flask.globals import _request_ctx_stack
 from rdflib.namespace import *
 from rdflib.term import _LOGGER
 
-from . import aggregation
-from .rule import HeadersRule
+from .rule import HeadersRule, header_rule_mixin
 from .binding import URIRefBinding, ResourceMap, ResourceAppAdapter
 
 from .resource import Resource, get_resource_app
-from .globals import _resource_ctx_stack
+from .globals import _resource_ctx_stack, dataset as ds
 
 _LOGGER.setLevel(logging.ERROR)
 
 
-class LDPApp(Flask):
+class LDPApp(header_rule_mixin(Flask), Flask):
     url_rule_class = HeadersRule
     resource_bind_class = URIRefBinding
     resource_app_class = Resource
@@ -30,20 +29,6 @@ class LDPApp(Flask):
         super(LDPApp, self).__init__(*args, **kwargs)
         self.resource_map = ResourceMap()
         self.resource_view_functions = {}
-
-    def create_url_adapter(self, request):
-        adapter = super(LDPApp, self).create_url_adapter(request)
-        if request is not None:
-            for rule in adapter.map._rules:
-                rule.headers = request.headers
-            _match = adapter.match
-            def match(self, *args, **kwargs):
-                rv = _match(*args, **kwargs)
-                for rule in adapter.map._rules:
-                    del rule.__dict__['headers']
-                return rv
-            adapter.match = match.__get__(adapter, adapter.__class__)
-        return adapter
 
     def add_resource_rule(self,
                           rule,
@@ -71,12 +56,13 @@ class LDPApp(Flask):
                                      % endpoint)
             self.resource_view_functions[endpoint] = view_func
 
-    def resource(self, varname, rule, c=aggregation, **options):
+    def resource(self, varname, rule, **options):
         def decorator(view_func):
 
             endpoint = options.pop('endpoint', None)
+            context = options.pop('context', ds)
             self.add_resource_rule(
-                rule, varname, endpoint, view_func, c, **options)
+                rule, varname, endpoint, view_func, context, **options)
             return view_func
         return decorator
 
@@ -84,18 +70,20 @@ class LDPApp(Flask):
         req = _request_ctx_stack.top.request
 
         if req.routing_exception is not None:
-
             self.raise_routing_exception(req)
-        adapter = self.resource_app_adapter(self.resource_map, req)
+        adapter = self.resource_app_adapter(self,
+                                            self.resource_map,
+                                            self.url_map,
+                                            req)
 
         if adapter.bound_with is None:
             return super(LDPApp, self).dispatch_request()
 
         req.view_args = adapter.args
 
-        if not adapter.wants_rdfsource:
+        if not adapter.wants_resource:
             return super(LDPApp, self).dispatch_request()
-        if adapter.resource is None:
+        if adapter.resource is None and req.method != 'PUT':
             raise NotFound('Resource %r not found' %
                            adapter.resource.identifier)
 

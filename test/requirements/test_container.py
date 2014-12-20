@@ -255,9 +255,18 @@ response header as is required in the create response.
 """
 from test.requirements.base import LdpTestCase
 
+from test.requirements.base import CONTINENTS
 
+from rdflib import URIRef, Graph
+from ldp import NS as LDP
+from ldp.globals import dataset as ds, aggregation, continents
+from ldp.helpers import URL
+
+BOB = URIRef('http://example.org/bob')
 class LdpcGeneral(LdpTestCase):
-
+    GRAPHS = {'continents': {'source': 'test/continents.rdf',
+                             'publicID': CONTINENTS},
+                             }
     def test_5_2_1_1(self):
         """
         5.2.1.1 Each Linked Data Platform Container MUST also be 
@@ -289,7 +298,8 @@ http://www.w3.org/ns/ldp#BasicContainer - for LDP Basic Containers
 http://www.w3.org/ns/ldp#DirectContainer - for LDP Direct Containers
 http://www.w3.org/ns/ldp#IndirectContainer - for LDP Indirect Containers
         """
-        pass
+        response = self.app.open('/container/AF', method='OPTIONS')
+        self.assertIn('Container', response.headers['Link'])
 
     def test_5_2_1_5(self):
         """
@@ -301,9 +311,36 @@ to influence the set of triples returned in representations of a LDPC,
 particularly for large LDPCs.  See also [LDP-PAGING].
         """
         pass
+POST = '''@prefix dcterms: <http://purl.org/dc/terms/>.
+@prefix ldp: <http://www.w3.org/ns/ldp#>.
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix cv: <http://purl.org/captsolo/resume-rdf/0.2/cv#> .
 
+@base <{base}> .
 
+<{name}> a foaf:Person;
+  dcterms:title '{name}’s data storage on the Web' .
+'''
+
+POST_JSON = '''[
+      {{
+        "@id": "{base}{name}",
+        "@type": [
+          "http://xmlns.com/foaf/0.1/Person"
+        ],
+        "http://purl.org/dc/terms/title": [
+          {{
+            "@value": "bob\u2019s data storage on the Web"
+          }}
+        ]
+      }}
+    ]'''
 class LdpcHttpPost(LdpTestCase):
+    GRAPHS = {'continents': {'source': 'test/continents.rdf',
+                             'publicID': CONTINENTS},
+                             }
 
     def test_5_2_3_1(self):
         """
@@ -313,42 +350,72 @@ respond with status code 201 (Created) and the Location
 header set to the new resource’s URL. Clients shall not expect any representation in the response
 entity body on a 201 (Created) response.
         """
-        pass
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST.format(base='http://example.org/',
+                                                  name='bob'),
+                                 headers={'Content-Type': 'text/turtle'})
+        self.assertEqual(response.status_code, 201)
+
+        self.assertEqual(response.headers['Location'], 'http://localhost/person/bob')
+
+
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST.format(base='http://example.org/',
+                                                  name='bob'),
+                                 headers={'Content-Type': 'text/turtle'})
+        self.assertEqual(response.status_code, 409)
+
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST.format(base='http://example.orgXX/',
+                                                  name='bob'),
+                                 headers={'Content-Type': 'text/turtle'})
+        self.assertEqual(response.status_code, 422)
 
     def test_5_2_3_2(self):
-        """
-        5.2.3.2 
-When a successful HTTP POST request to a LDPC results in the creation of a LDPR, a 
+        """5.2.3.2 When a successful HTTP POST request to a LDPC results in the creation of a LDPR, a 
 containment triple MUST be added to the state of the LDPC
 whose subject is the LDPC URI, 
 whose predicate is ldp:contains and whose object is the URI for the newly created document (LDPR).  Other triples may be added as well.
 The newly created LDPR appears as a contained resource of the LDPC until the
 newly created document is deleted or removed by other methods. 
         """
-        pass
 
-    def test_5_2_3_4(self):
-        """
-        5.2.3.4 LDP servers that successfully create a resource from a
-        RDF representation in the request entity body MUST honor the client's requested interaction model(s). 
-        If any requested interaction model cannot be honored, the server MUST fail the request.
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST.format(base='http://example.org/',
+                                                  name='bob'),
+                                 headers={'Content-Type': 'text/turtle'})
+        self.assertEqual(response.status_code, 201)
+        g = Graph().parse(data=self.app.get('/rdfsource/AF').data.decode(),
+                          format='turtle')
+        triples = list(g[:LDP.contains:BOB])
+        self.assertTrue(triples)
+
+#     def test_5_2_3_4(self):
+#         """
+#         5.2.3.4 LDP servers that successfully create a resource from a
+#         RDF representation in the request entity body MUST honor the client's requested interaction model(s). 
+#         If any requested interaction model cannot be honored, the server MUST fail the request.
 
 
 
-If the request header specifies a LDPR interaction model, then the server MUST handle subsequent 
-requests to the newly created resource's URI as if it is a LDPR
-(even if the content contains an rdf:type triple indicating a type of LDPC).
-If the request header specifies a LDPC interaction model, then the server MUST handle subsequent 
-requests to the newly created resource's URI as if it is a LDPC.
+# If the request header specifies a LDPR interaction model, then the server MUST handle subsequent 
+# requests to the newly created resource's URI as if it is a LDPR
+# (even if the content contains an rdf:type triple indicating a type of LDPC).
+# If the request header specifies a LDPC interaction model, then the server MUST handle subsequent 
+# requests to the newly created resource's URI as if it is a LDPC.
 
-This specification does not constrain the server's behavior in other cases.
+# This specification does not constrain the server's behavior in other cases.
 
-Clients use the same syntax, that is HTTP Link headers, to specify the desired interaction model
-        when creating a resource as servers use to advertise it on responses.
+# Clients use the same syntax, that is HTTP Link headers, to specify the desired interaction model
+#         when creating a resource as servers use to advertise it on responses.
 
-Note: A consequence of this is that LDPCs can be used to create LDPCs, if the server supports doing so.
-        """
-        pass
+# Note: A consequence of this is that LDPCs can be used to create LDPCs, if the server supports doing so.
+#         """
+#         pass
 
     def test_5_2_3_5(self):
         """
@@ -366,35 +433,35 @@ to determine the request representation's format when the request has an entity 
         """
         pass
 
-    def test_5_2_3_7(self):
-        """
-        5.2.3.7 LDP servers  
-creating a LDP-RS via POST MUST 
-interpret the null relative
-URI for the subject of triples in the LDP-RS representation in the
-request entity body as identifying the entity in the request body.
-Commonly, that entity is the model for the "to be created" LDPR, so
-triples whose subject is the null relative URI result in
-triples in the created resource whose subject is the created
-resource.  
-        """
-        pass
+#     def test_5_2_3_7(self):
+#         """
+#         5.2.3.7 LDP servers  
+# creating a LDP-RS via POST MUST 
+# interpret the null relative
+# URI for the subject of triples in the LDP-RS representation in the
+# request entity body as identifying the entity in the request body.
+# Commonly, that entity is the model for the "to be created" LDPR, so
+# triples whose subject is the null relative URI result in
+# triples in the created resource whose subject is the created
+# resource.  
+#         """
+#         pass
 
-    def test_5_2_3_8(self):
-        """
-        5.2.3.8 LDP servers SHOULD assign the URI for the resource to be
-created using server application specific rules in the absence of a client hint.
-        """
-        pass
+#     def test_5_2_3_8(self):
+#         """
+#         5.2.3.8 LDP servers SHOULD assign the URI for the resource to be
+# created using server application specific rules in the absence of a client hint.
+#         """
+#         pass
 
-    def test_5_2_3_9(self):
-        """
-        5.2.3.9 LDP servers SHOULD allow clients to create new resources without
-requiring detailed knowledge of application-specific constraints.
-This is a consequence of the requirement to enable simple creation and modification of LDPRs. LDP servers
-expose these application-specific constraints as described in section 4.2.1 General.
-        """
-        pass
+#     def test_5_2_3_9(self):
+#         """
+#         5.2.3.9 LDP servers SHOULD allow clients to create new resources without
+# requiring detailed knowledge of application-specific constraints.
+# This is a consequence of the requirement to enable simple creation and modification of LDPRs. LDP servers
+# expose these application-specific constraints as described in section 4.2.1 General.
+#         """
+#         pass
 
     def test_5_2_3_12(self):
         """
@@ -409,7 +476,13 @@ a context URI identifying the newly created LDP-NR (instead of the effective req
 a link relation value of describedby,
 and a target URI identifying the associated LDP-RS resource [RFC5988].
         """
-        pass
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST.format(base='http://example.org/',
+                                                  name='bob'),
+                                 headers={'Content-Type': 'text/turtle'})
+        response = self.app.get(URL(response.headers['Location']).path)
+        self.assertIn('data storage on the Web', response.data.decode())
 
     def test_5_2_3_13(self):
         """
@@ -428,7 +501,8 @@ that support POST to suddenly return a new header or for all new specifications 
 POST to be aware of its existence and require it, but it is a reasonable requirement for new
 specifications such as LDP.
         """
-        pass
+        response = self.app.open('/container/AF', method='OPTIONS')
+        self.assertIn('Accept-Post', response.headers)
 
     def test_5_2_3_14(self):
         """
@@ -437,18 +511,66 @@ specifications such as LDP.
     allow clients to create new members by enclosing a request entity body with a 
 Content-Type request header whose value is application/ld+json [JSON-LD].
         """
-        pass
 
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST_JSON.format(base='http://example.org/',
+                                                       name='bob'),
+                                 headers={'Content-Type': 'application/ld+json'})
+        self.assertEqual(response.status_code, 201)
+        g = Graph().parse(data=self.app.get('/rdfsource/AF').data.decode(),
+                          format='turtle')
+        triples = list(g[:LDP.contains:BOB])
+        self.assertTrue(triples)
+
+PUT_CONFLICT = '''@prefix dc: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix gn: <http://www.geonames.org/ontology#> .
+
+<http://www.telegraphis.net/data/continents/{0}#{0}> a foaf:PersonalProfileDocument;
+    foaf:primaryTopic <#me> ;
+    gn:population "922011001" ;
+    dc:title "Alice’s FOAF file" .
+'''
+PUT_NON_CONFLICT = '''@prefix dc: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix gn: <http://www.geonames.org/ontology#> .
+
+<http://www.telegraphis.net/data/continents/{0}#{0}> a foaf:PersonalProfileDocument;
+    foaf:primaryTopic <#me> ;
+    gn:population "922011001" ;
+    <http://www.w3.org/ns/ldp#contains> <http://example.org/bob> ;
+    dc:title "Alice’s FOAF file" .
+'''
 
 class LdpcHttpPut(LdpTestCase):
-
+    GRAPHS = {'continents': {'source': 'test/continents.rdf',
+                             'publicID': CONTINENTS},
+                             } 
     def test_5_2_4_1(self):
         """
         5.2.4.1 LDP servers SHOULD NOT allow HTTP PUT to update a LDPC’s containment triples; 
 if the server receives such a request, it SHOULD respond with a 409
 (Conflict) status code.
         """
-        pass
+        response = self.app.open('/container/AF',
+                                 method='POST',
+                                 data=POST_JSON.format(base='http://example.org/',
+                                                       name='bob'),
+                                 headers={'Content-Type': 'application/ld+json'})        
+
+        response = self.app.open('/container/AF',
+                                 method='PUT',
+                                 data=PUT_CONFLICT.format('AF'),
+                                 headers={'Content-Type': 'text/turtle'})
+
+        self.assertEqual(response.status_code, 409)
+        response = self.app.open('/container/AF',
+                                 method='PUT',
+                                 data=PUT_NON_CONFLICT.format('AF'),
+                                 headers={'Content-Type': 'text/turtle'})
+
+        self.assertEqual(response.status_code, 204)
 
 
 class LdpcHttpDelete(LdpTestCase):

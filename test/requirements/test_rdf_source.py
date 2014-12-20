@@ -117,7 +117,7 @@ outcome [JSON-LD].
 """
 from test.requirements.base import LdpTestCase
 
-
+from test.requirements.base import CONTINENTS
 class LdprsGeneral(LdpTestCase):
 
     def test_4_3_1_1(self):
@@ -221,7 +221,9 @@ representation [LDP-PAGING].
 
 
 class LdprsHttpGet(LdpTestCase):
-
+    GRAPHS = {'continents': {'source': 'test/continents.rdf',
+                             'publicID': CONTINENTS},
+                             }
     def test_4_3_2_1(self):
         """
         4.3.2.1 LDP servers MUST 
@@ -246,7 +248,8 @@ On the other hand, if Turtle is one of several requested media types,
 but another media type the server supports has a higher relative quality factor,
 standard HTTP content negotiation rules apply and the server (LDP or not) would not respond with Turtle.
         """
-        pass
+        response = self.app.get('/rdfsource/AF',
+                                headers={'Accept':'application/ld+json'})
 
     def test_4_3_2_2(self):
         """

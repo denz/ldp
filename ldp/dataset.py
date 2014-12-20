@@ -63,9 +63,10 @@ def _push_dataset_ctx(**graph_descriptors):
     for name, descriptor in graph_descriptors.items():
         if set(descriptor).intersection(set(('data', 'file', 'source'))):
             ds.g[name] = ds.parse(**descriptor)
+            for ns in ds.g[name].namespaces():
+                ds.bind(*ns)
         else:
             ds.g[name] = ConjunctiveGraph()
-
     _dataset_ctx_stack.push(ds)
     return ds
 

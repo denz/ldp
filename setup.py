@@ -62,8 +62,12 @@ if __name__ == '__main__':
         include_package_data=True,
         zip_safe=False,
         test_suite='test',
-        install_requires=['flask', 'rdflib', 'treelib', 'cached-property'],
-        tests_require=['nosetests',],
+        install_requires=['flask',
+                          'rdflib',
+                          'rdflib-jsonld',
+                          'treelib',
+                          'cached-property'],
+        tests_require=['nosetests'],
         entry_points={
         },
         classifiers=[

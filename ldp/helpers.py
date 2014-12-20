@@ -13,39 +13,19 @@ from werkzeug.routing import BuildError
 from flask import current_app as app
 from flask.helpers import url_for as url_for_endpoint
 
-
-def endpoint_for(ref):
-    for rule in app.resource_map._rules:
-        match = re.match(rule.rule_re, ref)
-        omit_rule = False
-        if match is not None:
-            args = {}
-            for id, value in match.groupdict().items():
-                if rule.argmap[id] not in args:
-                    args[rule.argmap[id]] = value
-                elif not args[rule.argmap[id]] == value:
-                    omit_rule = True
-            if not omit_rule:
-                return rule.endpoint, args
-    return None, None
-
-
-def url_for(ref):
-    endpoint, args = endpoint_for(ref)
-    if endpoint is not None:
-        return url_for_endpoint(endpoint, **args)
-
-    error = BuildError('No endpoint for identifier %r found' % ref, None, None)
-    return app.handle_url_build_error(error, None, None)
-
-
-def wants_rdfsource(request, rdfsource_types=['application/ld+json',
-                                              'text/turtle']):
+def wants_resource(request, rdfsource_types=['application/ld+json',
+                                             'text/turtle']):
     best = request.accept_mimetypes \
         .best_match(rdfsource_types + ['text/html'])
-    return best in rdfsource_types and \
+    accepts_rdfsource = best in rdfsource_types and \
         request.accept_mimetypes[best] > \
         request.accept_mimetypes['text/html']
+
+    content_is_rdfsource = request.headers.get('Content-Type', None)
+
+    return accepts_rdfsource or (content_is_rdfsource
+                                 and request.method
+                                 in ('PUT', 'POST', 'PATCH'))
 
 
 NETLOC_RE = re.compile(

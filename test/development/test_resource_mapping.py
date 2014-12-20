@@ -13,7 +13,7 @@ from ldp import NS as LDP, LDPApp
 from ldp.binding import URIRefBinding
 from ldp.globals import continents
 from ldp.dataset import _push_dataset_ctx, _pop_dataset_ctx
-from ldp.helpers import url_for as url_for_resource
+# from ldp.helpers import url_for as url_for_resource
 
 CONTINENTS = Namespace('http://www.telegraphis.net/data/continents/')
 CAPITALS = Namespace('http://www.telegraphis.net/data/capitals/')
@@ -98,11 +98,11 @@ class TestURIRefBinding(TestCase):
         self.assertEqual(self.app.get('/population/AF').data, b'922011000')
         self.assertEqual(self.app.get('/value/x').data, b'valuex')
 
-    def test_url_for_resource(self):
-        response = self.app.get('/linkasia/AF')
-        self.assertEqual(response.data, b'Africa sends to /population/AS')
-        # with self.assertRaises(BuildError):
-        # try:
-        #   response = self.app.get('/builderror')
-        # except Exception as e:
-        #   print([ e])
+    # def test_url_for_resource(self):
+    #     response = self.app.get('/linkasia/AF')
+    #     self.assertEqual(response.data, b'Africa sends to /population/AS')
+    #     # with self.assertRaises(BuildError):
+    #     # try:
+    #     #   response = self.app.get('/builderror')
+    #     # except Exception as e:
+    #     #   print([ e])

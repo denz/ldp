@@ -9,7 +9,8 @@ from pprint import pprint
 from copy import copy
 
 from werkzeug.routing import Map
-from werkzeug.exceptions import PreconditionFailed
+from werkzeug.exceptions import (
+    PreconditionFailed, UnprocessableEntity, Conflict)
 from werkzeug.datastructures import HeaderSet
 
 from flask import (Blueprint, Flask, request, current_app, g)
@@ -22,8 +23,8 @@ from treelib import Tree, Node
 
 from ldp import NS as LDP, resource as r, dataset as ds
 from ldp.globals import resources, _dataset_ctx_stack
-from ldp.rule import HeadersRule, match_headers
-from ldp.helpers import wants_rdfsource, Pipeline
+from ldp.rule import HeadersRule, match_headers, header_rule_mixin
+from ldp.helpers import wants_resource, Pipeline
 from ldp.dataset import DatasetGraphAggregation
 
 
@@ -94,41 +95,29 @@ class LDPResponse(Flask.response_class):
     default_mimetype = 'application/ld+json; charset=utf-8'
 
 
-def test_removable(triple, resource, request):
+def disable_remove_containment_on_put(triple, resource, request):
     # print('remove', triple)
     yield triple
 
 
-def test_addable(triple, resource, request):
+def disable_add_containment_on_put(triple, resource, request):
     # print('add', triple)
     yield triple
 
 
-class Resource(Flask):
+class Resource(header_rule_mixin(Flask), Flask):
     ldp_type = LDP.Resource
     response_class = LDPResponse
     url_rule_class = HeadersRule
-    patch_media_types = ('application/ld+json', 'text/turtle')
+    patch_mime_types = ('application/ld+json', 'text/turtle')
+    mime_format = {'text/turtle': 'turtle',
+                   'application/ld+json': 'json-ld',
+                   }
 
     pipelines = {
         'removeable': [],
         'addable': [],
     }
-
-    def create_url_adapter(self, request):
-        adapter = super(Resource, self).create_url_adapter(request)
-        if request is not None:
-            for rule in adapter.map._rules:
-                rule.headers = request.headers
-            _match = adapter.match
-
-            def match(self, *args, **kwargs):
-                rv = _match(*args, **kwargs)
-                for rule in adapter.map._rules:
-                    del rule.__dict__['headers']
-                return rv
-            adapter.match = match.__get__(adapter, adapter.__class__)
-        return adapter
 
     def make_default_options_response(self, *args, **kwargs):
         '''
@@ -138,7 +127,7 @@ class Resource(Flask):
                          self).make_default_options_response(*args, **kwargs)
         if 'PATCH' in response.allow:
             response.headers['Accept-Patch'] =\
-                HeaderSet(self.patch_media_types)
+                HeaderSet(self.patch_mime_types)
         return response
 
     def get_etag(self, resource):
@@ -165,36 +154,18 @@ class Resource(Flask):
                 response.headers['ETag'] = self.get_etag(r)
             return response
 
-        def head(url):
+        @self.route(match_headers('/<path:url>',
+                                  Accept='<any("application/ld+json","text/turtle"):mimetype>'),
+                    methods=('HEAD',))
+        def head(url, mimetype):
             return ''
 
-        self.route(match_headers('/<path:url>',
-                                 **{'Accept': 'application/ld+json'}),
-                   methods=('HEAD',))(head)
-
-        self.route(match_headers('/<path:url>',
-                                 **{'Accept': 'text/turtle'}),
-                   methods=('HEAD',))(head)
-
-        def replace_from_ldjson(url):
-            self.replace_resource(r, data=request.data,
-                                  format='json-ld')
-            return self.make_response(('', 204, ()))
-
         @self.route(match_headers('/<path:url>',
-                                  **{'Accept': 'application/ld+json'}),
+                                  **{'Content-Type': '<any("application/ld+json","text/turtle"):mimetype>'}),
                     methods=('PUT',))
-        def replace_from_ldjson(url):
+        def replace(url, mimetype):
             self.replace_resource(r, data=request.data,
-                                  format='json-ld')
-            return self.make_response(('', 204, ()))
-
-        @self.route(match_headers('/<path:url>',
-                                  **{'Accept': 'text/turtle'}),
-                    methods=('PUT',))
-        def replace_from_turtle(url):
-            self.replace_resource(r, data=request.data,
-                                  format='turtle',)
+                                  format=self.mime_format[mimetype])
             return self.make_response(('', 204, ()))
 
     def get_pipeline(self, name):
@@ -224,21 +195,26 @@ class Resource(Flask):
 class RDFSource(Resource):
     ldp_type = LDP.RDFSource
 
+    def make_default_options_response(self, *args, **kwargs):
+        '''
+        Add `Accept-Post` headers to default options
+        '''
+        response = super(Resource,
+                         self).make_default_options_response(*args, **kwargs)
+        if 'POST' in response.allow:
+            response.headers['Accept-Post'] =\
+                HeaderSet(self.post_mime_types)
+        return response
+
     def build(self):
+        rule = match_headers('/<path:url>',
+                             Accept='<any("application/ld+json","text/turtle"):mimetype>')
 
-        @self.route(match_headers('/<path:url>',
-                                  Accept='application/ld+json'),
-                    methods=('GET',))
-        def serialize_to_ldjson(url):
-            return (r.graph.serialize(format='json-ld'),
+        @self.route(rule, methods=('GET',))
+        def serialize(url, mimetype):
+            return (r.graph.serialize(format=self.mime_format[mimetype]),
                     200,
-                    {'Content-Type': 'application/ld+json'})
-
-        @self.route('/<path:url>', methods=('GET',))
-        def serialize_to_turtle(url):
-            return (r.graph.serialize(format='turtle'),
-                    200,
-                    {'Content-Type': 'text/turtle'})
+                    {'Content-Type': mimetype})
 
         super(RDFSource, self).build()
 
@@ -247,8 +223,65 @@ class NonRDFSource(Resource):
     ldp_type = LDP.NonRDFSource
 
 
+def deny_modify_containment_on_put(triple, resource, request):
+    if triple[1] == LDP.contains and request.method == 'PUT':
+        raise Conflict('Unable to modify containment triple for %r'
+                       % triple[0])
+    yield triple
+
+
 class Container(RDFSource):
     ldp_type = LDP.Container
+    post_mime_types = ('application/ld+json', 'text/turtle')
+
+    pipelines = {
+        'removeable': [deny_modify_containment_on_put, ],
+        'addable': [deny_modify_containment_on_put, ],
+    }
+
+    def build(self):
+        @self.route(match_headers('/<path:url>',
+                                  **{'Content-Type': '<any("application/ld+json","text/turtle"):mimetype>'}),
+                    methods=('POST',))
+        def append(url, mimetype):
+            path, uriref = self.create_resource(url, r, data=request.data,
+                                                format=self.mime_format[mimetype])
+
+            r.add(LDP.contains, uriref)
+
+            return self.make_response(('', 201, (('Location', path), )))
+
+        super(Container, self).build()
+
+    def identified_graph(self, **kwargs):
+        g = Graph().parse(**kwargs)
+        try:
+            next(g[::])
+        except StopIteration:
+            raise UnprocessableEntity('No triples found in <pre>\n%r\n</pre>' % kwargs['data'].decode())
+
+        subject = list(set((s for s, o in g[:RDF.type:])))
+        if len(subject) > 1:
+            raise Conflict('Multiple subjects %r found while creating resource' %
+                           subject)
+        subject = subject.pop()
+        if subject in r.adapter.pool:
+            raise Conflict('Resource %r alredy exists' % subject)
+        return subject, g[::]
+
+    def create_resource(self, url, resource, **kwargs):
+        identifier, triples = self.identified_graph(**kwargs)
+
+        link = resource.adapter.url_for(identifier)
+
+        if link is not None:
+            dest = resource.adapter.resource_pool.graph(identifier)
+            for t in triples:
+                dest.add(t)
+
+            return link, dest.identifier
+        else:
+            raise UnprocessableEntity('No url found for %r' % identifier)
 
 
 class BasicContainer(Container):

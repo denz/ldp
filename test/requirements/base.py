@@ -32,12 +32,20 @@ def continent_rdfsource(continent):
     return continent.value(GN.population)
 
 
-@app.route('/container/<continent>')
+@app.route('/container/<continent>', methods=('POST', 'PUT'))
 @app.resource('continent', CONTINENTS['<continent>#<continent>'],
-              types=[LDP.Container])
+              types=[LDP.Container],
+              )
 def continent_container(continent):
     return continent.value(GN.population)
 
+@app.route('/person/<person>', methods=('GET',))
+@app.resource('person', 'http://example.org/<person>',
+              types=[LDP.RDFSource],
+              )
+def person(person):
+    print(person)
+    return 'BINGO!'
 
 class CONFIG:
     DEBUG = True
@@ -55,7 +63,7 @@ class LdpTestCase(TestCase):
         @wraps(client_open)
         def open(client, *args, **kwargs):
             headers = kwargs.pop('headers', {})
-            headers['Accept'] = self.accept_type
+            headers.setdefault('Accept', self.accept_type)
             kwargs['headers'] = headers
             return client_open(*args, **kwargs)
 
@@ -73,4 +81,3 @@ class LdpTestCase(TestCase):
 
         if hasattr(self, 'CONFIG'):
             app.config.from_object(CONFIG)
-

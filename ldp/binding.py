@@ -6,12 +6,12 @@ from rdflib import URIRef
 from rdflib.namespace import RDF
 from rdflib.resource import Resource as RDFResource
 
-from werkzeug.routing import DEFAULT_CONVERTERS, RuleFactory
+from werkzeug.routing import DEFAULT_CONVERTERS, RuleFactory, BuildError
 from werkzeug.local import LocalProxy
 from cached_property import cached_property
 
 from . import NS as LDP
-from .helpers import wants_rdfsource, Pipeline
+from .helpers import wants_resource, Pipeline
 from .globals import pool, dataset as ds
 from .dataset import DatasetGraphAggregation
 from .resource import Resource as LDPResourceApp, TYPES_LIST
@@ -111,6 +111,11 @@ class ResourceMap(object):
         if len(rules_by_suiteability):
             return rules_by_suiteability
 
+    def endpoint_for_rule(self, rule):
+        for e, rules in self._rules_by_endpoint.items():
+            if rule in rules:
+                return e
+
 
 class URIRefBinding(RuleFactory):
 
@@ -124,6 +129,10 @@ class URIRefBinding(RuleFactory):
         self.rule = rule
         self.varname = varname
         self.endpoint = endpoint
+
+        if isinstance(context, DatasetGraphAggregation):
+            raise TypeError('%r cant be context' % context)
+
         self.context = context
         self.map = map
         self.options = options
@@ -159,7 +168,7 @@ class URIRefBinding(RuleFactory):
                         conv_regex = conv_regex[:exc_pos]\
                             + '<' + conv_regex[exc_pos:]
                 varname = 'id%s' % i
-                argmap[varname] = name
+                argmap.setdefault(name, []).append(varname)
                 template += '{%s}' % name
                 rule_re += _rule_template % (varname, conv_regex)
                 i += 1
@@ -177,7 +186,7 @@ class URIRefBinding(RuleFactory):
         return self.map.converters[converter_name](self.map, *args, **kwargs)
 
     @property
-    def rule_re(self):
+    def re(self):
         return re.compile(self.parsed_rule[0])
 
     @property
@@ -190,11 +199,26 @@ class URIRefBinding(RuleFactory):
 
     @property
     def arguments(self):
-        return set(self.argmap.values())
+        return set(self.argmap.keys())
 
     @cached_property
     def ldp_types(self):
         return self.options.get('types', [])
+
+    def match_uriref(self, uriref):
+        match = self.re.match(uriref)
+        if not match:
+            return
+
+        match = match.groupdict()
+        rv = {}
+        for argname, argids in self.argmap.items():
+            rv[argname] = match[argids[0]]
+            for argid in argids[1:]:
+                if match[argid] != rv[argname]:
+                    return
+
+        return rv
 
 
 def remove_from_context(quad, context, is_quad=True):
@@ -217,8 +241,10 @@ class ResourceAppAdapter(object):
     resource_quad_selectors = [remove_from_context]
     default_ldp_types = [LDP.Resource]
 
-    def __init__(self, map, request):
+    def __init__(self, app, map, urlmap, request):
+        self.app = app
         self.map = map
+        self.urlmap = urlmap
         self.request = request
         self.resource_exists = False
         self.bound_with = map.endpoint_rules(self.request.endpoint,
@@ -227,8 +253,8 @@ class ResourceAppAdapter(object):
             self.bound_with = list(self.bound_with)
 
     @cached_property
-    def wants_rdfsource(self):
-        return wants_rdfsource(self.request)
+    def wants_resource(self):
+        return wants_resource(self.request)
 
     @cached_property
     def binding(self):
@@ -262,8 +288,8 @@ class ResourceAppAdapter(object):
         for ns in ds.namespaces():
             g.bind(*ns)
 
-        if isinstance(context, DatasetGraphAggregation):
-            quads = ds.quads((self.uriref, None, None, None))
+        if hasattr(context, 'quads'):
+            quads = context.quads((self.uriref, None, None, None))
 
         else:
             quads = ((s, p, o, context.identifier)
@@ -295,12 +321,9 @@ class ResourceAppAdapter(object):
         if isinstance(context, LocalProxy):
             context = context._get_current_object()
 
-        if isinstance(context, DatasetGraphAggregation):
-            context = ds._get_current_object()
-
         pipeline = Pipeline(self.resource_quad_selectors)
 
-        for q in pipeline(quads, context, hasattr(context, 'quads')):
+        for q in pipeline(quads, context):
             self.resource_exists = True
             yield q
 
@@ -312,3 +335,17 @@ class ResourceAppAdapter(object):
         ldp_types.extend(self.binding.ldp_types)
         ldp_types.extend(self.default_ldp_types)
         return list(set(ldp_types))
+
+    @cached_property
+    def urladapter(self):
+        return self.app.create_url_adapter(self.request)
+
+    def url_for(self, uriref):
+        for rule in self.map._rules:
+            values = rule.match_uriref(uriref)
+            if values is not None:
+                endpoint = self.map.endpoint_for_rule(rule)
+                try:
+                    return self.urladapter.build(endpoint, values=values)
+                except BuildError as error:
+                    self.app.handle_url_build_error(error, endpoint, values)
