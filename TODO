@@ -1,3 +1,5 @@
  * http://en.wikipedia.org/wiki/Minimum_spanning_tree for admin page generation
 
  * remove fnmatch wildcards from request headers matching since it creates ambiguity for url routing reversing
+
+ * currently app.route returns tuple(view_func, bindings) so module contains that tuples instead of function. Add code at end of view_func owner module to replace that tuples with actual function

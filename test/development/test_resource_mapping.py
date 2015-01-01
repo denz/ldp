@@ -1,108 +1,48 @@
-from unittest import TestCase
-import re
-from rdflib import URIRef, Literal
-from rdflib.namespace import *
+from rdflib import URIRef
+
+from ldp.globals import pool
+
+from test.base import LDPTest, CONTINENTS, PUT
 
 
-from werkzeug.routing import Map, BuildError
-from flask.helpers import locked_cached_property as cached_property, url_for
-from flask import app
+class TestResourcePool(LDPTest):
+    DATASET_DESCRIPTORS = {'continents': {'source': 'test/continents.rdf',
+                           'publicID': CONTINENTS}}
 
-from ldp.helpers import URL
-from ldp import NS as LDP, LDPApp
-from ldp.binding import URIRefBinding
-from ldp.globals import continents
-from ldp.dataset import _push_dataset_ctx, _pop_dataset_ctx
-# from ldp.helpers import url_for as url_for_resource
+    def test_resource_moved_on_get(self):
 
-CONTINENTS = Namespace('http://www.telegraphis.net/data/continents/')
-CAPITALS = Namespace('http://www.telegraphis.net/data/capitals/')
-GN = Namespace('http://www.geonames.org/ontology#')
-from ldp.dataset import context as dataset, NamedContextDataset
+        @self.app.route('/x/<continent>')
+        @self.app.bind('continent',
+                       CONTINENTS['<continent>#<continent>'])
+        def c0(continent):
+            return '%s' % len(list(r.identifier for r in pool.contexts()))
 
-AFRICA = URIRef('http://www.telegraphis.net/data/continents/AF#AF')
-ASIA = URIRef('http://www.telegraphis.net/data/continents/AS#AS')
-UNKNOWN = URIRef('xxx')
+        OC = URIRef(CONTINENTS['OC#OC'])
 
-app = LDPApp(__name__)
+        self.assertEqual(int(self.client.get('/x/AF').data), 2)
+        self.assertTrue(list(self.app.config['DATASET'].g['continents'][OC::]))
 
+        self.assertEqual(int(self.client.get('/x/OC').data), 3)
+        self.assertFalse(list(self.app.config['DATASET']
+                              .g['continents'][OC::]))
 
-class CONFIG:
-    GRAPHS = {'continents': {'source': 'test/continents.rdf',
-                             'publicID': CONTINENTS},
-              'capitails': {'source': 'test/capitals.rdf',
-                            'publicID': CAPITALS}
-              }
-    # DEBUG = True
+    def test_resource_moved_on_put(self):
+        @self.app.route('/x/<continent>')
+        @self.app.bind('continent',
+                       CONTINENTS['<continent>#<continent>'])
+        def c0(continent):
+            return '%s' % len(list(r.identifier for r in pool.contexts()))
 
-app.config.from_object(CONFIG)
+        OC = URIRef(CONTINENTS['OC#OC'])
 
+        self.client.open('/x/OC',
+                         data=PUT.format('OC'),
+                         method='PUT',
+                         headers={'Content-Type': 'text/turtle'})
 
-@app.route('/value/<v>')
-def index(v):
-    return 'value%s'%v
+        self.assertFalse(list(self.app.config['DATASET']
+                              .g['continents'][OC::]))
 
-
-@app.route('/population/<continent>')
-@app.resource('continent', CONTINENTS['<continent>#<continent>'], c=continents)
-def continent(continent):
-    return continent.value(GN.population)
-
-@app.route('/linkasia/<continent>')
-@app.resource('continent', CONTINENTS['<continent>#<continent>'], c=continents)
-def getasia(continent):
-    return '%s sends to %s'%(continent.value(GN.name),
-                             url_for_resource(ASIA))
-
-@app.route('/builderror')
-def builderror():
-    return '%s'%url_for_resource(UNKNOWN)
-
-@app.before_request
-def before_request():
-    _push_dataset_ctx(**app.config['GRAPHS'])
-
-
-@app.teardown_request
-def teardown_request(exception):
-    _pop_dataset_ctx()
-
-
-class TestURIRefBinding(TestCase):
-
-    @cached_property
-    def ds(self):
-        ds = NamedContextDataset()
-
-        ds.g['continents'] = ds.parse(source='test/continents.rdf',
-                                      publicID=CONTINENTS)
-        ds.g['capitals'] = ds.parse(source='test/capitals.rdf',
-                                    publicID=CAPITALS)
-        return ds
-
-    def setUp(self):
-        self.app = app.test_client()
-
-    def ztest_resource_retrieving(self):
-        rule = URIRefBinding('http://www.telegraphis.net/data/continents/<code>#<code>',
-                          'code',
-                          'xxx',
-                          self.ds.g['continents'],
-                          Map())
-        r = rule.resource(code='AF')
-        self.assertIn(Literal('Africa', lang='en'), r[GN.name])
-        r = rule.resource(code='XX')
-        self.assertFalse(list(r[GN.name]))
-
-    def test_url_mapping(self):
-        self.assertEqual(self.app.get('/population/AF').data, b'922011000')
-        self.assertEqual(self.app.get('/value/x').data, b'valuex')
-
-    # def test_url_for_resource(self):
-    #     response = self.app.get('/linkasia/AF')
-    #     self.assertEqual(response.data, b'Africa sends to /population/AS')
-    #     # with self.assertRaises(BuildError):
-    #     # try:
-    #     #   response = self.app.get('/builderror')
-    #     # except Exception as e:
-    #     #   print([ e])
+        self.assertTrue(len([r.identifier for
+                             r in self.app.config['DATASET']
+                            .g['pool'].contexts()]) > 1)

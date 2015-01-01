@@ -8,6 +8,8 @@ from urllib.parse import (
     parse_qs,
     parse_qsl)
 
+from cached_property import cached_property
+
 from werkzeug.routing import BuildError
 
 from flask import current_app as app
@@ -240,3 +242,11 @@ class Pipeline(object):
             pipeline.send(item)
             if self.queue:
                 yield self.queue.popleft()
+
+
+class Uncacheable(object):
+    def uncache(self, *uncaches):
+        for name, prop  in self.__class__.__dict__.items():
+            if name in self.__dict__ and isinstance(prop, cached_property):
+                if not uncaches or name in uncaches:
+                    del self.__dict__[name]
