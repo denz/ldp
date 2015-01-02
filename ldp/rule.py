@@ -149,7 +149,7 @@ class BindableRule(HeadersRule):
     default_resource_types = [LDP.RDFSource]
 
     def __init__(self, *args, **kwargs):
-        self.parent = kwargs.pop('parent', None)
+        self.bound_to = kwargs.pop('bound_to', None)
         self.pool = kwargs.pop('pool', self.__class__.pool)
         self._context = kwargs.pop('context', self.__class__.dataset)
         self.selectors = kwargs.pop('selectors', [])
@@ -171,8 +171,8 @@ class BindableRule(HeadersRule):
     def match(self, *args, **kwargs):
         match = super(BindableRule, self).match(*args, **kwargs)
         if match is not None:
-            if self.parent is not None:
-                rvars = self.parent.resource_vars
+            if self.bound_to is not None:
+                rvars = self.bound_to.resource_vars
             else:
                 rvars = self.resource_vars
             rv = {}
@@ -198,12 +198,17 @@ class ResourceContextAdapter(object):
     '''
     resource_quad_selectors = [remove_from_context]
 
-    def __init__(self, binding, uriref, context, pool, selectors):
-        self.binding = binding
+    def __init__(self, request, app, uriref, context, pool, selectors):
+        self.request = request
+        self.app = app
         self.uriref = uriref
         self.context = context
         self.pool = pool
         self.selectors = selectors + self.resource_quad_selectors
+
+    @property
+    def url_map(self):
+        return self.app.url_map
 
     @cached_property
     def pool_uris(self):
@@ -250,12 +255,29 @@ class ResourceContextAdapter(object):
     def urladapter(self):
         return self.app.create_url_adapter(self.request)
 
-    def url_for(self, uriref):
-        for rule in self.map._rules:
-            values = rule.match_uriref(uriref)
-            if values is not None:
-                endpoint = self.map.endpoint_for_rule(rule)
-                try:
-                    return self.urladapter.build(endpoint, values=values)
-                except BuildError as error:
-                    self.app.handle_url_build_error(error, endpoint, values)
+    def url_for(self, *urirefs):
+        rules = []
+        for rule in self.url_map._rules:
+            if rule.bound_to is not None:
+                continue
+            elif not rule in rules:
+                rules.append(rule)
+
+        if rules is None:
+            self.app.handle_url_build_error(
+                BuildError('No url for %s' % urirefs,
+                           None,
+                           self.request.method))
+
+        for rule in rules:
+            values = {}
+            for uriref in urirefs:
+                for varname, binding in rule.resource_vars.items():
+                    matched = binding.match_uriref(uriref)
+                    if matched is not None:
+                        values.update(matched)
+                        try:
+                            return self.urladapter.build(rule.endpoint,
+                                                         values=values)
+                        except BuildError:
+                            pass

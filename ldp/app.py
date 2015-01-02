@@ -33,14 +33,15 @@ def resource_link_type(response):
     if request.url_rule is None:
         return response
 
-    if request.url_rule.parent:
+    if request.url_rule.bound_to:
         link.update(('%s;rel=type' % t
-                     for t in request.url_rule.parent.resource_types))
+                     for t in request.url_rule.bound_to.resource_types))
+
     elif request.url_rule in\
-        [getattr(r, 'parent', None) for r
+        [getattr(r, 'bound_to', []) for r
          in current_app.url_map._rules]:
             link.update(('%s;rel=type' % t
-                         for t in (NS.NonRDFSource, NS.Resource)))
+                         for t in request.url_rule.resource_types))
 
     response.headers['Link'] = link.to_header()
     return response
@@ -127,20 +128,20 @@ class LDP(header_rule_mixin(Flask), Flask):
 
             self.add_url_rule(rule, endpoint, view_func, **options)
             if resource_bindings:
-                parent = self.url_map._rules.pop()
+                bound_to = self.url_map._rules.pop()
                 for (ldp_rule_args, ldp_options)\
-                    in self.ldp_resource_rules(parent,
+                    in self.ldp_resource_rules(bound_to,
                                                view_func,
                                                resource_bindings):
                     self.add_url_rule(*ldp_rule_args,
                                       **ldp_options)
-                self.url_map._rules.append(parent)
+                self.url_map._rules.append(bound_to)
             return view_func, resource_bindings
         return decorator
 
-    def ldp_resource_rules(self, parent, parent_view, bindings):
-        argspec = getargspec(parent_view)
-        rvars = parent.resource_vars
+    def ldp_resource_rules(self, bound_to, bound_to_view, bindings):
+        argspec = getargspec(bound_to_view)
+        rvars = bound_to.resource_vars
         for (varname, rule, options) in bindings:
             if varname in rvars:
                 raise AssertionError(
@@ -151,24 +152,24 @@ class LDP(header_rule_mixin(Flask), Flask):
                 if varname not in argspec.args:
                     raise AssertionError(
                         'Resource mapping %r:%r not mappable to function %s' %
-                        (varname, rule, parent_view))
+                        (varname, rule, bound_to_view))
 
             resource_binding = URIRefBinding(rule, self.url_map, **options)
 
-            if not parent.arguments.issuperset(resource_binding.arguments):
+            if not bound_to.arguments.issuperset(resource_binding.arguments):
                 raise AssertionError(
                     'Resource mapping %r:%r cant be formatted with rule %s' %
-                                    (varname, rule, parent.rule))
+                                    (varname, rule, bound_to.rule))
 
             rvars[varname] = resource_binding
 
-        parent.primary_resource = varname
-        parent.resource_types = list(implied_types(
+        bound_to.primary_resource = varname
+        bound_to.resource_types = list(implied_types(
             *options.get('types',
-                         parent.default_resource_types)))
+                         bound_to.default_resource_types)))
         for builder in self.\
-                resource_rule_builders(types=parent.resource_types):
-            rule_getter = builder(self, parent)
+                resource_rule_builders(types=bound_to.resource_types):
+            rule_getter = builder(self, bound_to)
             if isinstance(rule_getter, GeneratorType):
                 for ruledef in rule_getter:
                     yield ruledef
@@ -185,25 +186,27 @@ class LDP(header_rule_mixin(Flask), Flask):
         if req.routing_exception is not None:
             self.raise_routing_exception(req)
 
-        if req.url_rule.parent is not None:
-            rule = req.url_rule.parent
+        if req.url_rule.bound_to is not None:
+            rule = req.url_rule.bound_to
         else:
             rule = req.url_rule
 
         rvars = rule.resource_vars
-        resource_varnames = list(rule.resource_vars.keys())
 
         req.resource_adapters = {}
         for varname, value in req.view_args.items():
             if varname in rvars:
                 req.resource_adapters[varname] = \
-                    self.resource_adapter_class(rvars[varname],
+                    self.resource_adapter_class(req,
+                                                self,
                                                 req.view_args[varname],
                                                 req.url_rule.context,
                                                 req.url_rule.pool,
                                                 req.url_rule.selectors)
-                if req.url_rule.parent and varname == req.url_rule.parent.primary_resource:
-                    req.resource_adapters['resource'] = req.resource_adapters[varname]
+                if req.url_rule.bound_to\
+                        and varname == req.url_rule.bound_to.primary_resource:
+                        req.resource_adapters['resource'] \
+                            = req.resource_adapters[varname]
 
         for varname in req.resource_adapters:
             resource = req.resource_adapters[varname].resource
@@ -226,4 +229,10 @@ class LDP(header_rule_mixin(Flask), Flask):
             header = parse_set_header(response.headers.get('Accept-Patch', ''))
             header.update(MIME_FORMAT.keys())
             response.headers['Accept-Patch'] = header
+
+        if 'POST' in response.allow:
+            header = parse_set_header(response.headers.get('Accept-Post', ''))
+            header.update(MIME_FORMAT.keys())
+            response.headers['Accept-Post'] = header
+
         return response
