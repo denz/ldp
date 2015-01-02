@@ -66,7 +66,8 @@ if __name__ == '__main__':
                           'rdflib',
                           'rdflib-jsonld',
                           'treelib',
-                          'cached-property'],
+                          'cached-property',
+                          'blinker'],
         tests_require=['nosetests'],
         entry_points={
         },
